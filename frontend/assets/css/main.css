@@ -1,0 +1,28 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+@theme static {
+  --font-sans: 'Public Sans', sans-serif;
+  
+  --font-display: 'Tilt Neon', regular;
+  --font-header: 'Tilt Warp', regular;
+  --breakpoint-3xl: 1920px;
+
+
+  --color-neutral: #0C1222;
+
+   --color-tertiary: #f00cb3;
+   
+   --color-primary: #36d1b2;
+  --color-header-50: #1E2838;
+  --color-header-100: #1E2838;
+  --color-header-200: #1E2838;
+  --color-header-300: #1E2838;
+  --color-header-400: #1E2838;
+  --color-header-500: #1E2838;
+  --color-header-600: #1E2838;
+  --color-header-700: #1E2838;
+  --color-header-800: #1E2838;
+  --color-header-900: #1E2838;
+  --color-header-950: #1E2838;
+}

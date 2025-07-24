@@ -1,0 +1,37 @@
+version: "3.9"
+services:
+  api:
+    build: ./backend
+    image: arrdio-api:latest
+    container_name: arrdio-api
+    # Persist the DB (and anything else you might write) on the host
+    volumes:
+      - db-data:/app/data
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks: ["internal"]
+
+  frontend:
+    build: ./frontend
+    image: arrdio-frontend:latest
+    container_name: arrdio-frontend
+    environment:
+      GOLANG_API_URL: http://api:8080
+    ports:
+      - "3000:3000"
+    depends_on: [api]
+    restart: unless-stopped
+    networks: ["internal"]
+
+volumes:
+  db-data:          # lives at the Docker volumes directory automatically
+
+networks:
+  internal:
+    driver: bridge

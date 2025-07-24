@@ -1,0 +1,5 @@
+.env
+output
+*.db
+audiobooks
+ebooks

@@ -50,7 +50,7 @@ import { boolean } from 'valibot'
         loadingOnAdd.value = false
         successOnAdd.value = true
         toast.add({title: "Success!", 
-            description: "Download path saved successfully",
+            description: "User was able to log in successfully",
             icon: 'lucide:check',
             color: 'success'
         })

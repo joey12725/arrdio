@@ -11,17 +11,17 @@ const UButton = resolveComponent('UButton')
 
 const BookSchema = v.object({
   title: v.pipe(v.string('Required'), v.trim(),  v.nonEmpty('Required')),
-  author: v.pipe(v.string(), v.trim()),
+  downloadCategory: v.pipe(v.string(), v.trim()),
   bookType: v.pipe(v.string(), v.trim())
 })
 
 const toast = useToast()
 
-type Book = {inputTitle: String, inputAuthor: String, bookType: String, imageLink?: String, retrievedTitle?: String, downloadLink?: String}
+type Book = {inputTitle: String, downloadCategory: String, bookType: String, imageLink?: String, retrievedTitle?: String, downloadLink?: String}
 
 type BookRow = {      // unique key
   inputTitle:  string
-  inputAuthor: string
+  downloadCategory?: string
   bookType:    'audiobook' | 'ebook'
   // request/response lifecycle
   fetchStatus:      'pending' | 'loading' | 'found' | 'error' | 'downloading'
@@ -35,22 +35,34 @@ type BookRow = {      // unique key
   extension?: string
 }
 
+interface DownloadCategory {
+        id: number
+        category: string
+        savepath: string
+}
 type Schema = v.InferOutput<typeof BookSchema>
 
-const blankBook = (): Schema => ({ title: '', author: '', bookType: 'both' })
+const blankBook = (): Schema => ({ title: '', downloadCategory: '', bookType: 'both' })
 
 const stateList = reactive<Book[]>([])
 
 const books = ref<BookRow[]>([])
 
 const state = reactive<Schema>({
-   title: '', author: '' , bookType: 'both'
+   title: '', downloadCategory: '' , bookType: 'both'
 })
 
 const hasDownloadableBooks = computed(() =>
   books.value.some(b => b.retrievedTitle)
 )
 
+
+async function getCategories(){
+  const categoryFetch = await useFetch<DownloadCategory[]>('/api/getCategory')
+  if (!categoryFetch.error.value){
+    return categoryFetch.data.value
+  }
+}
 
 const radioItems = ref([{value: 'audiobook', label: "Audio", icon: 'arcticons:audiobookshelf'}, {value: 'both', label: "Both", icon: 'bx:book-reader'}, {value: 'ebook', label: "EBook", icon: 'bx:book'}])
 
@@ -61,8 +73,8 @@ const columns: TableColumn<BookRow>[] = [
     cell: ({ row }) => `${row.getValue('inputTitle')}`
   }, 
   {
-    accessorKey: 'inputAuthor',
-    header: 'Input Author',
+    accessorKey: 'downloadCategory',
+    header: 'Download Category',
     cell: ({ row }) => `${row.getValue('inputAuthor')}`
   },
   {
@@ -176,12 +188,12 @@ function onSubmit (e: FormSubmitEvent<Schema>) {
   
   if (e.data.bookType === "both"){
 
-    books.value.push({inputTitle: e.data.title, inputAuthor: e.data.author, bookType: "audiobook", fetchStatus: "pending"} )    
-    books.value.push({inputTitle: e.data.title, inputAuthor: e.data.author, bookType: "ebook", fetchStatus: "pending"}) 
+    books.value.push({inputTitle: e.data.title, bookType: "audiobook", fetchStatus: "pending"} )    
+    books.value.push({inputTitle: e.data.title, bookType: "ebook", fetchStatus: "pending"}) 
   }
   
   else {
-    books.value.push({inputTitle: e.data.title,inputAuthor: e.data.author, bookType: e.data.bookType, fetchStatus: "pending"}) 
+    books.value.push({inputTitle: e.data.title, bookType: e.data.bookType, fetchStatus: "pending"}) 
   }
   Object.assign(state, blankBook())
 }
@@ -196,10 +208,10 @@ async function onRequest () {
   
   const ebooks = books.value.filter(book => book.bookType === "ebook")
   
-  const audiobookRequest = audiobooks.map(b => ({"book":{"title": b.inputTitle, "author": b.inputAuthor}}))
+  const audiobookRequest = audiobooks.map(b => ({"book":{"title": b.inputTitle}}))
 
   console.log(audiobookRequest)
-  const ebookRequest = ebooks.map(b => ({"book":{"title": b.inputTitle, "author": b.inputAuthor}}))
+  const ebookRequest = ebooks.map(b => ({"book":{"title": b.inputTitle}}))
   
   // console.log(audiobookRequest)
   
@@ -323,9 +335,9 @@ async function downloadBook(books: Array<BookRow>) {
   
   const ebooks = books.filter(book => book.bookType === "ebook")
   
-  const audiobookRequest = audiobooks.map(book => ({"magnet": book.magnetLink, "category": "audiobooks"}))
+  const audiobookRequest = audiobooks.map(book => ({"magnet": book.magnetLink, "category": book.downloadCategory}))
 
-  const ebookRequest = ebooks.map(b => ({"book":{"title": b.inputTitle, "author": b.inputAuthor, "id": b.id, "hash": b.hash, "extension": b.extension}, "category": "ebooks"}))
+  const ebookRequest = ebooks.map(b => ({"book":{"title": b.retrievedTitle, "author": "", "id": b.id, "hash": b.hash, "extension": b.extension}, "category": b.downloadCategory}))
 
   if (audiobookRequest.length > 0){
   const { data: audiobookData, error: audiobookError } = await useFetch<{
@@ -389,9 +401,10 @@ async function downloadBook(books: Array<BookRow>) {
 
   ebookData.value!.response.forEach(res => {
 
-    const row = books.find(r => r.id === res.book?.id && r.fetchStatus === "found")
+    const row = books.find(r => r.retrievedTitle === res.book?.title && r.fetchStatus === "found")
     if (!row) return
     if (res.error) {
+      console.log("test")
       row.fetchStatus       = 'error'
       row.errorMessage = res.error
     } else {
@@ -420,14 +433,11 @@ TODO:
     <div>
 
     <UForm  attach :schema="BookSchema" :state="state"  @submit="onSubmit">
-    <div class="flex flex-row gap-4">
+    <div class="flex items-center justify-center">
       <UFormField label="Title" name="title">
       <UInput v-model="state.title"/>
     </UFormField>
 
-    <UFormField label="Author" name="author">
-      <UInput v-model="state.author"/>
-    </UFormField>
   </div>
   
 

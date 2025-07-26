@@ -68,6 +68,11 @@ func DownloadBook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(zLibUsers) <= 0 {
+		fmt.Printf("error no zlibrary users set up")
+		http.Error(w, "error no zlibrary users set up", http.StatusInternalServerError)
+		return
+	}
 	fmt.Printf("Request: %v\n", request)
 	var totalDownloadCount int
 
@@ -105,10 +110,10 @@ func DownloadBook(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			fmt.Printf("error calling zlibrary's endpoint: %v\n", err.Error())
 			errorMessage := fmt.Sprintf("error calling zlibrary's endpoint: %v", err.Error())
-			response.Response = append(response.Response, DownloadResult{Error: errorMessage})
+			response.Response = append(response.Response, DownloadResult{BookItem: download.BookItem, Error: errorMessage})
+		} else {
+			response.Response = append(response.Response, DownloadResult{BookItem: download.BookItem, Error: ""})
 		}
-
-		response.Response = append(response.Response, DownloadResult{BookItem: download.BookItem, Error: ""})
 
 	}
 

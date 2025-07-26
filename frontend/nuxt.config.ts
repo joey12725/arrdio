@@ -6,7 +6,7 @@ export default defineNuxtConfig({
   css: ['~/assets/css/main.css'],
   runtimeConfig: {
     public: {
-      apiBase: process.env.GOLANG_API_URL || 'http://localhost:8080'
+      apiBase: process.env.GOLANG_API_URL
     }
   },
   vite: {
@@ -25,8 +25,8 @@ export default defineNuxtConfig({
       defaultProvider: 'oidc',
       providers: {
         oidc: {
-          clientId: process.env.AUTHENTIK_CLIENT_ID!,
-          clientSecret: process.env.AUTHENTIK_CLIENT_SECRET!,
+          clientId:         process.env.AUTHENTIK_CLIENT_ID,
+          clientSecret:      process.env.AUTHENTIK_CLIENT_SECRET,
           authorizationUrl: `https://auth.example.com/application/o/authorize/`,
           tokenUrl:         `https://auth.example.com/application/o/token/`,
           userInfoUrl:      `https://auth.example.com/application/o/userinfo/`,       
@@ -40,6 +40,10 @@ export default defineNuxtConfig({
       middleware: {
         globalMiddlewareEnabled: true,
         customLoginPage: true
-      }
-  }
+      },
+      devMode: {
+      enabled: false,
+    }
+  },
+
 })

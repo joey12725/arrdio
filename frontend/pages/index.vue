@@ -22,7 +22,7 @@ type Book = {inputTitle: String, downloadCategory: String, bookType: String, ima
 
 type BookRow = {      // unique key
   inputTitle:  string
-  downloadCategory?: string
+  downloadCategory: string
   bookType:    'audiobook' | 'ebook'
   // request/response lifecycle
   fetchStatus:      'pending' | 'loading' | 'found' | 'error' | 'downloading'
@@ -88,23 +88,11 @@ const columns: TableColumn<BookRow>[] = [
         label: category.category,
         value: category.category
       }))
-
-      // console.log(row.getValue("bookType"))
-      var defaultCategory:String | undefined
-      if (row.getValue("bookType") === "audiobook"){
-        defaultCategory = "audiobooks"
-      } else if (row.getValue("bookType") === "ebook"){
-        defaultCategory = "ebooks"
-      } else{
-        defaultCategory = undefined
-      }
-
         
       return h(USelectMenu, {
         items: formattedCategories,
         class: "w-40",
-        defaultValue: defaultCategory,
-        modelValue: row.original.downloadCategory ?? defaultCategory,
+        modelValue: row.original.downloadCategory,
         'onUpdate:modelValue': (newVal: string) => {
           row.original.downloadCategory = newVal
         },
@@ -219,16 +207,19 @@ function removeItem() {
 const tableLoading = computed(() =>
   books.value.some(r => r.fetchStatus === 'loading')
 )
+
 function onSubmit (e: FormSubmitEvent<Schema>) {
+  const defaultCategoryFor = (type: 'audiobook' | 'ebook') =>
+    type === 'audiobook' ? 'audiobooks' : 'ebooks'
   
   if (e.data.bookType === "both"){
 
-    books.value.push({inputTitle: e.data.title, bookType: "audiobook", fetchStatus: "pending"} )    
-    books.value.push({inputTitle: e.data.title, bookType: "ebook", fetchStatus: "pending"}) 
+    books.value.push({inputTitle: e.data.title, bookType: "audiobook", fetchStatus: "pending", downloadCategory: defaultCategoryFor("audiobook")} )    
+    books.value.push({inputTitle: e.data.title, bookType: "ebook", fetchStatus: "pending", downloadCategory: defaultCategoryFor("ebook")}) 
   }
   
   else {
-    books.value.push({inputTitle: e.data.title, bookType: e.data.bookType, fetchStatus: "pending"}) 
+    books.value.push({inputTitle: e.data.title, bookType: e.data.bookType, fetchStatus: "pending", downloadCategory: defaultCategoryFor(e.data.bookType)}) 
   }
   Object.assign(state, blankBook())
 }

@@ -9,6 +9,15 @@ export default defineNuxtConfig({
       apiBase: process.env.GOLANG_API_URL
     }
   },
+  nitro: {
+    preset: 'node-server',
+    storage: { // Use local file system storage for dev quick setup
+      oidc: {
+        driver: 'fs',
+        base: 'oidcstorage',
+      },
+    },
+  },
   vite: {
     server: {
       host: true,

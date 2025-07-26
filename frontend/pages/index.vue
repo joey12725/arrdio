@@ -8,6 +8,8 @@ import { routeLocationKey, routerViewLocationKey } from 'vue-router';
 const UBadge = resolveComponent('UBadge')
 const UIcon = resolveComponent('UIcon')
 const UButton = resolveComponent('UButton')
+const toast = useToast()
+const USelectMenu = resolveComponent('USelectMenu')
 
 const BookSchema = v.object({
   title: v.pipe(v.string('Required'), v.trim(),  v.nonEmpty('Required')),
@@ -15,7 +17,6 @@ const BookSchema = v.object({
   bookType: v.pipe(v.string(), v.trim())
 })
 
-const toast = useToast()
 
 type Book = {inputTitle: String, downloadCategory: String, bookType: String, imageLink?: String, retrievedTitle?: String, downloadLink?: String}
 
@@ -48,6 +49,10 @@ const stateList = reactive<Book[]>([])
 
 const books = ref<BookRow[]>([])
 
+const downloadCategories = ref<DownloadCategory[]>([])
+
+const selectedCategory = ref<String>("")
+
 const state = reactive<Schema>({
    title: '', downloadCategory: '' , bookType: 'both'
 })
@@ -57,12 +62,14 @@ const hasDownloadableBooks = computed(() =>
 )
 
 
-async function getCategories(){
-  const categoryFetch = await useFetch<DownloadCategory[]>('/api/getCategory')
-  if (!categoryFetch.error.value){
-    return categoryFetch.data.value
-  }
+const { data: fetchedCategories, error } = await useFetch<DownloadCategory[]>('/api/getCategory')
+if (!error.value && fetchedCategories.value) {
+  downloadCategories.value = fetchedCategories.value
+  // console.log(downloadCategories.value)
+} else {
+  console.log(error.value)
 }
+
 
 const radioItems = ref([{value: 'audiobook', label: "Audio", icon: 'arcticons:audiobookshelf'}, {value: 'both', label: "Both", icon: 'bx:book-reader'}, {value: 'ebook', label: "EBook", icon: 'bx:book'}])
 
@@ -75,7 +82,35 @@ const columns: TableColumn<BookRow>[] = [
   {
     accessorKey: 'downloadCategory',
     header: 'Download Category',
-    cell: ({ row }) => `${row.getValue('inputAuthor')}`
+    cell: ({ row }) => {
+      
+      const formattedCategories = downloadCategories.value.map((category: DownloadCategory) => ({
+        label: category.category,
+        value: category.category
+      }))
+
+      // console.log(row.getValue("bookType"))
+      var defaultCategory:String | undefined
+      if (row.getValue("bookType") === "audiobook"){
+        defaultCategory = "audiobooks"
+      } else if (row.getValue("bookType") === "ebook"){
+        defaultCategory = "ebooks"
+      } else{
+        defaultCategory = undefined
+      }
+
+        
+      return h(USelectMenu, {
+        items: formattedCategories,
+        class: "w-40",
+        defaultValue: defaultCategory,
+        modelValue: row.original.downloadCategory ?? defaultCategory,
+        'onUpdate:modelValue': (newVal: string) => {
+          row.original.downloadCategory = newVal
+        },
+        valueKey: 'value',
+      })
+    }
   },
   {
     accessorKey: 'fetchStatus',
@@ -210,7 +245,7 @@ async function onRequest () {
   
   const audiobookRequest = audiobooks.map(b => ({"book":{"title": b.inputTitle}}))
 
-  console.log(audiobookRequest)
+  // console.log(audiobookRequest)
   const ebookRequest = ebooks.map(b => ({"book":{"title": b.inputTitle}}))
   
   // console.log(audiobookRequest)
@@ -269,7 +304,7 @@ async function onRequest () {
 
   if (ebookRequest.length != 0){  
 
-    console.log(ebookRequest)
+    // console.log(ebookRequest)
     const { data: ebookData, error: ebookError } = await useFetch<
     {response: Array<{
       title: string, 
@@ -337,10 +372,12 @@ async function downloadBook(books: Array<BookRow>) {
   
   const audiobookRequest = audiobooks.map(book => ({"magnet": book.magnetLink, "category": book.downloadCategory}))
 
+  
   const ebookRequest = ebooks.map(b => ({"book":{"title": b.retrievedTitle, "author": "", "id": b.id, "hash": b.hash, "extension": b.extension}, "category": b.downloadCategory}))
 
   if (audiobookRequest.length > 0){
-  const { data: audiobookData, error: audiobookError } = await useFetch<{
+    // console.log(`Audiobook category is ${audiobookRequest[0].}`)
+    const { data: audiobookData, error: audiobookError } = await useFetch<{
     response: Array<{
     magnet: string,
     error: string
@@ -372,7 +409,7 @@ async function downloadBook(books: Array<BookRow>) {
   })
 }
   if (ebookRequest.length > 0){
-    console.log(ebookRequest)
+    console.log(`Ebook category is ${ebookRequest[0].category}`)
   const { data: ebookData, error: ebookError } = await useFetch<{
     warning: string
     response: Array<{
@@ -404,7 +441,7 @@ async function downloadBook(books: Array<BookRow>) {
     const row = books.find(r => r.retrievedTitle === res.book?.title && r.fetchStatus === "found")
     if (!row) return
     if (res.error) {
-      console.log("test")
+      // console.log("test")
       row.fetchStatus       = 'error'
       row.errorMessage = res.error
     } else {

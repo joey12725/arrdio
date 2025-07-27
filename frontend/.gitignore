@@ -25,4 +25,4 @@ logs
 
 ebooks
 
-compose.yml
+./compose-example.yaml

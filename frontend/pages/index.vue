@@ -25,7 +25,7 @@ type BookRow = {      // unique key
   downloadCategory: string
   bookType:    'audiobook' | 'ebook'
   // request/response lifecycle
-  fetchStatus:      'pending' | 'loading' | 'found' | 'error' | 'downloading'
+  fetchStatus:      'pending' | 'loading' | 'found' | 'error' | 'downloaded'
   // result fields (all optional until status === 'done')
   imageLink?:      string
   retrievedTitle?: string
@@ -49,9 +49,10 @@ const stateList = reactive<Book[]>([])
 
 const books = ref<BookRow[]>([])
 
+const isDownloading = ref(false)
+
 const downloadCategories = ref<DownloadCategory[]>([])
 
-const selectedCategory = ref<String>("")
 
 const state = reactive<Schema>({
    title: '', downloadCategory: '' , bookType: 'both'
@@ -106,19 +107,12 @@ const columns: TableColumn<BookRow>[] = [
     cell: ({ row }) => {
       const status = row.getValue('fetchStatus') as BookRow['fetchStatus']
 
-    if (status === 'downloading') {
-      return h(UIcon, {
-        name: 'i-heroicons-check-circle',
-        class: 'text-green-500 transition-opacity duration-500',
-        size: 24
-      })
-    }
       const color = {
         found: 'success' as const,
         error: 'error' as const,
         pending: 'warning' as const,
         loading: 'info' as const,
-        downloading: 'success' as const
+        downloaded: 'success' as const
       }[status]
 
       return h(UBadge, { class: 'capitalize', variant: 'subtle', color }, () =>
@@ -189,6 +183,13 @@ const columns: TableColumn<BookRow>[] = [
   },
     cell: ({ row }) => {
       if (row.getValue('retrievedTitle')){
+        if (row.getValue('fetchStatus') === "downloaded") { 
+          return h(UIcon, {
+            name: 'i-heroicons-check-circle',
+            class: 'text-green-500 transition-opacity duration-500',
+            size: 30
+        })
+      }
         return h(UButton, {icon: "meteor-icons:download", color: "neutral", variant: "outline", size:"xl", onClick: () => downloadBook([row.original])})
       }
       else{
@@ -356,10 +357,10 @@ async function onRequest () {
 
 
 
-async function downloadBook(books: Array<BookRow>) {
-  const audiobooks = books.filter(book => book.bookType === "audiobook")
+async function downloadBook(rows: Array<BookRow>) {
+  const audiobooks = rows.filter(book => book.bookType === "audiobook")
   
-  const ebooks = books.filter(book => book.bookType === "ebook")
+  const ebooks = rows.filter(book => book.bookType === "ebook")
   
   const audiobookRequest = audiobooks.map(book => ({"magnet": book.magnetLink, "category": book.downloadCategory}))
 
@@ -389,13 +390,20 @@ async function downloadBook(books: Array<BookRow>) {
 
   audiobookData.value!.response.forEach(res => {
 
-    const row = books.find(r => r.magnetLink == res.magnet && r.fetchStatus === 'found')
+    const row = rows.find(r => r.magnetLink == res.magnet && r.fetchStatus === 'found')
     if (!row) return
     if (res.error) {
       row.fetchStatus       = 'error'
       row.errorMessage = res.error
     } else {
-      row.fetchStatus         = 'downloading'
+      row.fetchStatus         = 'downloaded'
+      
+    //   const idx = rows.indexOf(row)
+    //   if (idx !== -1) {
+    //    setTimeout(() => {
+    //    books.value.splice(idx, 1)
+    //   }, 200)
+    // }
     }
   })
 }
@@ -429,14 +437,21 @@ async function downloadBook(books: Array<BookRow>) {
 
   ebookData.value!.response.forEach(res => {
 
-    const row = books.find(r => r.retrievedTitle === res.book?.title && r.fetchStatus === "found")
+    const row = rows.find(r => r.retrievedTitle === res.book?.title && r.fetchStatus === "found")
     if (!row) return
     if (res.error) {
       // console.log("test")
       row.fetchStatus       = 'error'
       row.errorMessage = res.error
     } else {
-      row.fetchStatus         = 'downloading'
+      row.fetchStatus         = 'downloaded'
+
+    //   const idx = rows.indexOf(row)
+    //   if (idx !== -1) {
+    //    setTimeout(() => {
+    //     books.value.splice(idx, 1)
+    //   }, 200)
+    // }
     }
   })
   }
@@ -456,8 +471,9 @@ TODO:
   <section class="flex items-center justify-center h-full w-full overflow-auto">
   
   <div class="flex flex-col gap-2 items-center justify-center">
-    <UTable :data="books" v-if="books.length > 0" class="pb-6" :columns="columns" loading-color="primary" loading-animation="carousel" :loading="tableLoading"/>
-
+    <TransitionGroup>
+      <UTable :data="books" v-if="books.length > 0" class="pb-6" :columns="columns" loading-color="primary" loading-animation="carousel" :loading="tableLoading"/>
+    </TransitionGroup>
     <div>
 
     <UForm  attach :schema="BookSchema" :state="state"  @submit="onSubmit">

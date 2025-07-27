@@ -1,7 +1,6 @@
 version: "3.9"
 services:
   api:
-    build: ./backend
     image: arrdio-api:latest
     container_name: arrdio-api
     # Persist the DB (and anything else you might write) on the host
@@ -9,29 +8,30 @@ services:
       - db-data:/app/data
       - ./ebooks:/ebooks:rw
     ports:
-      - "8080:8080"
+      - "2130:2130"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      test: ["CMD", "curl", "-f", "http://localhost:2130/"]
       interval: 30s
       timeout: 5s
       retries: 3
     networks: ["internal"]
 
   frontend:
-    build:
-      context: ./frontend
-      args:
-        GOLANG_API_URL: 
-        AUTHENTIK_ISSUER: 
-        AUTHENTIK_CLIENT_ID: 
-        AUTHENTIK_CLIENT_SECRET: 
-        AUTH_REDIRECT_URI:   
-        NUXT_OIDC_TOKEN_KEY: 
-        NUXT_OIDC_SESSION_SECRET: 
-        NUXT_OIDC_AUTH_SESSION_SECRET: 
     image: arrdio-frontend:latest
     container_name: arrdio-frontend
+    environment:
+      NUXT_OIDC_TOKEN_KEY: 
+      NUXT_OIDC_SESSION_SECRET: 
+      NUXT_OIDC_AUTH_SESSION_SECRET: 
+
+      # your generic OIDC provider (key = "oidc")
+      NUXT_OIDC_PROVIDERS_OIDC_CLIENT_ID: 
+      NUXT_OIDC_PROVIDERS_OIDC_CLIENT_SECRET: 
+      NUXT_OIDC_PROVIDERS_OIDC_BASE_URL: 
+      NUXT_OIDC_PROVIDERS_OIDC_REDIRECT_URI: 
+      # rest of your public config
+      NUXT_PUBLIC_API_BASE: http://api:2130
     ports:
       - "3000:3000"
     depends_on: [api]

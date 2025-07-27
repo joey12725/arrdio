@@ -25,7 +25,7 @@ type BookRow = {      // unique key
   downloadCategory: string
   bookType:    'audiobook' | 'ebook'
   // request/response lifecycle
-  fetchStatus:      'pending' | 'loading' | 'found' | 'error' | 'downloaded'
+  fetchStatus:      'pending' | 'loading' | 'found' | 'error' | 'downloaded' | 'notfound'
   // result fields (all optional until status === 'done')
   imageLink?:      string
   retrievedTitle?: string
@@ -112,7 +112,8 @@ const columns: TableColumn<BookRow>[] = [
         error: 'error' as const,
         pending: 'warning' as const,
         loading: 'info' as const,
-        downloaded: 'success' as const
+        downloaded: 'success' as const,
+        notfound: 'error' as const
       }[status]
 
       return h(UBadge, { class: 'capitalize', variant: 'subtle', color }, () =>
@@ -280,6 +281,11 @@ async function onRequest () {
       const row = books.value.find(r => r.inputTitle === res.title && r.bookType === 'audiobook' && r.fetchStatus === 'loading')
       if (!row) return
       if (res.error) {
+        console.log(res.error)
+        if (res.error === "error book not found"){
+          row.fetchStatus       = 'notfound'
+          row.errorMessage = res.error
+        }
         row.fetchStatus       = 'error'
         row.errorMessage = res.error
       } else if (res.book) {

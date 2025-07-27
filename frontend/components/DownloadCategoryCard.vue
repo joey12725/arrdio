@@ -50,11 +50,6 @@
 
         loadingOnAdd.value = false
         successOnAdd.value = true
-        toast.add({title: "Success!", 
-            description: "User log in test was successful",
-            icon: 'lucide:check',
-            color: 'success'
-        })
         
         // addModalOpen.value = false
     

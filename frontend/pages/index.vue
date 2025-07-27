@@ -8,6 +8,8 @@ import { routeLocationKey, routerViewLocationKey } from 'vue-router';
 const UBadge = resolveComponent('UBadge')
 const UIcon = resolveComponent('UIcon')
 const UButton = resolveComponent('UButton')
+const toast = useToast()
+const USelectMenu = resolveComponent('USelectMenu')
 
 const BookSchema = v.object({
   title: v.pipe(v.string('Required'), v.trim(),  v.nonEmpty('Required')),
@@ -15,16 +17,15 @@ const BookSchema = v.object({
   bookType: v.pipe(v.string(), v.trim())
 })
 
-const toast = useToast()
 
 type Book = {inputTitle: String, downloadCategory: String, bookType: String, imageLink?: String, retrievedTitle?: String, downloadLink?: String}
 
 type BookRow = {      // unique key
   inputTitle:  string
-  downloadCategory?: string
+  downloadCategory: string
   bookType:    'audiobook' | 'ebook'
   // request/response lifecycle
-  fetchStatus:      'pending' | 'loading' | 'found' | 'error' | 'downloading'
+  fetchStatus:      'pending' | 'loading' | 'found' | 'error' | 'downloaded'
   // result fields (all optional until status === 'done')
   imageLink?:      string
   retrievedTitle?: string
@@ -48,6 +49,11 @@ const stateList = reactive<Book[]>([])
 
 const books = ref<BookRow[]>([])
 
+const isDownloading = ref(false)
+
+const downloadCategories = ref<DownloadCategory[]>([])
+
+
 const state = reactive<Schema>({
    title: '', downloadCategory: '' , bookType: 'both'
 })
@@ -57,12 +63,14 @@ const hasDownloadableBooks = computed(() =>
 )
 
 
-async function getCategories(){
-  const categoryFetch = await useFetch<DownloadCategory[]>('/api/getCategory')
-  if (!categoryFetch.error.value){
-    return categoryFetch.data.value
-  }
+const { data: fetchedCategories, error } = await useFetch<DownloadCategory[]>('/api/getCategory')
+if (!error.value && fetchedCategories.value) {
+  downloadCategories.value = fetchedCategories.value
+  // console.log(downloadCategories.value)
+} else {
+  console.log(error.value)
 }
+
 
 const radioItems = ref([{value: 'audiobook', label: "Audio", icon: 'arcticons:audiobookshelf'}, {value: 'both', label: "Both", icon: 'bx:book-reader'}, {value: 'ebook', label: "EBook", icon: 'bx:book'}])
 
@@ -75,7 +83,23 @@ const columns: TableColumn<BookRow>[] = [
   {
     accessorKey: 'downloadCategory',
     header: 'Download Category',
-    cell: ({ row }) => `${row.getValue('inputAuthor')}`
+    cell: ({ row }) => {
+      
+      const formattedCategories = downloadCategories.value.map((category: DownloadCategory) => ({
+        label: category.category,
+        value: category.category
+      }))
+        
+      return h(USelectMenu, {
+        items: formattedCategories,
+        class: "w-40",
+        modelValue: row.original.downloadCategory,
+        'onUpdate:modelValue': (newVal: string) => {
+          row.original.downloadCategory = newVal
+        },
+        valueKey: 'value',
+      })
+    }
   },
   {
     accessorKey: 'fetchStatus',
@@ -83,19 +107,12 @@ const columns: TableColumn<BookRow>[] = [
     cell: ({ row }) => {
       const status = row.getValue('fetchStatus') as BookRow['fetchStatus']
 
-    if (status === 'downloading') {
-      return h(UIcon, {
-        name: 'i-heroicons-check-circle',
-        class: 'text-green-500 transition-opacity duration-500',
-        size: 24
-      })
-    }
       const color = {
         found: 'success' as const,
         error: 'error' as const,
         pending: 'warning' as const,
         loading: 'info' as const,
-        downloading: 'success' as const
+        downloaded: 'success' as const
       }[status]
 
       return h(UBadge, { class: 'capitalize', variant: 'subtle', color }, () =>
@@ -166,6 +183,13 @@ const columns: TableColumn<BookRow>[] = [
   },
     cell: ({ row }) => {
       if (row.getValue('retrievedTitle')){
+        if (row.getValue('fetchStatus') === "downloaded") { 
+          return h(UIcon, {
+            name: 'i-heroicons-check-circle',
+            class: 'text-green-500 transition-opacity duration-500',
+            size: 30
+        })
+      }
         return h(UButton, {icon: "meteor-icons:download", color: "neutral", variant: "outline", size:"xl", onClick: () => downloadBook([row.original])})
       }
       else{
@@ -184,16 +208,19 @@ function removeItem() {
 const tableLoading = computed(() =>
   books.value.some(r => r.fetchStatus === 'loading')
 )
+
 function onSubmit (e: FormSubmitEvent<Schema>) {
+  const defaultCategoryFor = (type: 'audiobook' | 'ebook') =>
+    type === 'audiobook' ? 'audiobooks' : 'ebooks'
   
   if (e.data.bookType === "both"){
 
-    books.value.push({inputTitle: e.data.title, bookType: "audiobook", fetchStatus: "pending"} )    
-    books.value.push({inputTitle: e.data.title, bookType: "ebook", fetchStatus: "pending"}) 
+    books.value.push({inputTitle: e.data.title, bookType: "audiobook", fetchStatus: "pending", downloadCategory: defaultCategoryFor("audiobook")} )    
+    books.value.push({inputTitle: e.data.title, bookType: "ebook", fetchStatus: "pending", downloadCategory: defaultCategoryFor("ebook")}) 
   }
   
   else {
-    books.value.push({inputTitle: e.data.title, bookType: e.data.bookType, fetchStatus: "pending"}) 
+    books.value.push({inputTitle: e.data.title, bookType: e.data.bookType, fetchStatus: "pending", downloadCategory: defaultCategoryFor(e.data.bookType)}) 
   }
   Object.assign(state, blankBook())
 }
@@ -210,7 +237,7 @@ async function onRequest () {
   
   const audiobookRequest = audiobooks.map(b => ({"book":{"title": b.inputTitle}}))
 
-  console.log(audiobookRequest)
+  // console.log(audiobookRequest)
   const ebookRequest = ebooks.map(b => ({"book":{"title": b.inputTitle}}))
   
   // console.log(audiobookRequest)
@@ -269,7 +296,7 @@ async function onRequest () {
 
   if (ebookRequest.length != 0){  
 
-    console.log(ebookRequest)
+    // console.log(ebookRequest)
     const { data: ebookData, error: ebookError } = await useFetch<
     {response: Array<{
       title: string, 
@@ -330,17 +357,19 @@ async function onRequest () {
 
 
 
-async function downloadBook(books: Array<BookRow>) {
-  const audiobooks = books.filter(book => book.bookType === "audiobook")
+async function downloadBook(rows: Array<BookRow>) {
+  const audiobooks = rows.filter(book => book.bookType === "audiobook")
   
-  const ebooks = books.filter(book => book.bookType === "ebook")
+  const ebooks = rows.filter(book => book.bookType === "ebook")
   
   const audiobookRequest = audiobooks.map(book => ({"magnet": book.magnetLink, "category": book.downloadCategory}))
 
+  
   const ebookRequest = ebooks.map(b => ({"book":{"title": b.retrievedTitle, "author": "", "id": b.id, "hash": b.hash, "extension": b.extension}, "category": b.downloadCategory}))
 
   if (audiobookRequest.length > 0){
-  const { data: audiobookData, error: audiobookError } = await useFetch<{
+    // console.log(`Audiobook category is ${audiobookRequest[0].}`)
+    const { data: audiobookData, error: audiobookError } = await useFetch<{
     response: Array<{
     magnet: string,
     error: string
@@ -361,18 +390,25 @@ async function downloadBook(books: Array<BookRow>) {
 
   audiobookData.value!.response.forEach(res => {
 
-    const row = books.find(r => r.magnetLink == res.magnet && r.fetchStatus === 'found')
+    const row = rows.find(r => r.magnetLink == res.magnet && r.fetchStatus === 'found')
     if (!row) return
     if (res.error) {
       row.fetchStatus       = 'error'
       row.errorMessage = res.error
     } else {
-      row.fetchStatus         = 'downloading'
+      row.fetchStatus         = 'downloaded'
+      
+    //   const idx = rows.indexOf(row)
+    //   if (idx !== -1) {
+    //    setTimeout(() => {
+    //    books.value.splice(idx, 1)
+    //   }, 200)
+    // }
     }
   })
 }
   if (ebookRequest.length > 0){
-    console.log(ebookRequest)
+    console.log(`Ebook category is ${ebookRequest[0].category}`)
   const { data: ebookData, error: ebookError } = await useFetch<{
     warning: string
     response: Array<{
@@ -401,14 +437,21 @@ async function downloadBook(books: Array<BookRow>) {
 
   ebookData.value!.response.forEach(res => {
 
-    const row = books.find(r => r.retrievedTitle === res.book?.title && r.fetchStatus === "found")
+    const row = rows.find(r => r.retrievedTitle === res.book?.title && r.fetchStatus === "found")
     if (!row) return
     if (res.error) {
-      console.log("test")
+      // console.log("test")
       row.fetchStatus       = 'error'
       row.errorMessage = res.error
     } else {
-      row.fetchStatus         = 'downloading'
+      row.fetchStatus         = 'downloaded'
+
+    //   const idx = rows.indexOf(row)
+    //   if (idx !== -1) {
+    //    setTimeout(() => {
+    //     books.value.splice(idx, 1)
+    //   }, 200)
+    // }
     }
   })
   }
@@ -428,8 +471,9 @@ TODO:
   <section class="flex items-center justify-center h-full w-full overflow-auto">
   
   <div class="flex flex-col gap-2 items-center justify-center">
-    <UTable :data="books" v-if="books.length > 0" class="pb-6" :columns="columns" loading-color="primary" loading-animation="carousel" :loading="tableLoading"/>
-
+    <TransitionGroup>
+      <UTable :data="books" v-if="books.length > 0" class="pb-6" :columns="columns" loading-color="primary" loading-animation="carousel" :loading="tableLoading"/>
+    </TransitionGroup>
     <div>
 
     <UForm  attach :schema="BookSchema" :state="state"  @submit="onSubmit">

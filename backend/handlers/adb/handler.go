@@ -113,6 +113,7 @@ func SearchBooks(w http.ResponseWriter, r *http.Request) {
 			defer cancel()
 			book, err := FetchBook(ctx, browserCtx, item.BookItem.Title)
 			if err != nil {
+				fmt.Printf("%v not found\n", item.BookItem.Title)
 				results[i] = BooksResult{Title: item.BookItem.Title, Error: err.Error(), AudioBook: &book}
 			} else {
 				results[i] = BooksResult{Title: item.BookItem.Title, AudioBook: &book}

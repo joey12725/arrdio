@@ -281,13 +281,16 @@ async function onRequest () {
       const row = books.value.find(r => r.inputTitle === res.title && r.bookType === 'audiobook' && r.fetchStatus === 'loading')
       if (!row) return
       if (res.error) {
-        console.log(res.error)
+        // console.log(`Error here: ${res.error}`)
         if (res.error === "error book not found"){
+          // console.log("Yay")
           row.fetchStatus       = 'notfound'
           row.errorMessage = res.error
-        }
+        } else{
+        
         row.fetchStatus       = 'error'
         row.errorMessage = res.error
+        }
       } else if (res.book) {
         row.fetchStatus         = 'found'
         row.imageLink      = res.book.image_link

@@ -35,7 +35,7 @@ type TorrentResponse struct {
 // newClient creates a qbittorrent client connected to qbittorrent.example.com
 func newClient() (*qb.Client, error) {
 	client := qb.NewClient(qb.Config{
-		Host:     "http://qbittorrent.example.com",
+		Host:     "https://qbittorrent.example.com",
 		Username: "admin",
 		Password: "REDACTED_QBIT_PASSWORD",
 	})

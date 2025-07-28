@@ -34,13 +34,13 @@ export default defineNuxtConfig({
       defaultProvider: 'oidc',
       providers: {
         oidc: {
-          clientId:         process.env.AUTHENTIK_CLIENT_ID,
-          clientSecret:      process.env.AUTHENTIK_CLIENT_SECRET,
+          clientId:         '',
+          clientSecret:      '',
           authorizationUrl: `https://auth.example.com/application/o/authorize/`,
-          tokenUrl:         `https://auth.example.com/application/o/token/`,
-          userInfoUrl:      `https://auth.example.com/application/o/userinfo/`,       
-          openIdConfiguration: `https://auth.example.com/application/o/arrdiov2/.well-known/openid-configuration`,
-          redirectUri: process.env.AUTH_REDIRECT_URI,
+            tokenUrl:         `https://auth.example.com/application/o/token/`,
+          userInfoUrl:      `https://auth.example.com/application/o/userinfo/`,     
+          openIdConfiguration: '',
+          redirectUri: '',
           scope: ['openid','profile','email','offline_access'],
           pkce: true,
         }

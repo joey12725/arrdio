@@ -113,7 +113,8 @@ func SearchBooks(w http.ResponseWriter, r *http.Request) {
 			defer cancel()
 			book, err := FetchBook(ctx, browserCtx, item.BookItem.Title)
 			if err != nil {
-				results[i] = BooksResult{Title: item.BookItem.Title, Error: err.Error()}
+				fmt.Printf("%v not found\n", item.BookItem.Title)
+				results[i] = BooksResult{Title: item.BookItem.Title, Error: err.Error(), AudioBook: &book}
 			} else {
 				results[i] = BooksResult{Title: item.BookItem.Title, AudioBook: &book}
 			}
@@ -132,9 +133,14 @@ func FetchBook(clientCtx context.Context, browserCtx playwright.BrowserContext, 
 	page, err := searchBook(bookTitle, browserCtx)
 
 	if err != nil {
-		return AudioBook{}, err
+		return AudioBook{Title: ""}, err
 	}
 
+	notFound, notFoundError := page.Locator("#content > h3").InnerText()
+
+	if notFoundError == nil && notFound == "Not Found" {
+		return AudioBook{Title: ""}, fmt.Errorf("error book not found")
+	}
 	post := page.Locator("div.post:nth-child(2)")
 
 	book := AudioBook{}

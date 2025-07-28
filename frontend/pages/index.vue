@@ -230,7 +230,7 @@ async function onRequest () {
 
   books.value.forEach(row => {
     if (row.fetchStatus === 'pending') row.fetchStatus = 'loading'
-  })
+  })                                                                                           
 
   const audiobooks = books.value.filter(book => book.bookType === "audiobook")
   
@@ -243,69 +243,69 @@ async function onRequest () {
   
   // console.log(audiobookRequest)
   
-  if (audiobookRequest.length != 0){
-    const { data: audiobookData, error: audiobookError } = await useFetch<
-    {results: Array<{
-      title: string, 
-      book?:{
-        image_link: string
-        href_link: string
-        magnet_link: string
-        title: string
-        author?: string
-    }
-      error?: string
-    }>}>('/api/searchAudioBooks', {
-      method: 'post',
-      body: { request: audiobookRequest }
-    })
-
-    if (audiobookError.value) {
-
-
-      toast.add({title: "Uh oh! Panikk ahhhh, there was an error!", 
-        description: String(audiobookError.value?.statusMessage || audiobookError.value),
-        icon: 'i-heroicons-exclamation-triangle',
-        color: 'error'
-      })
-      
-      books.value.forEach(row => {
-        if (row.bookType === 'audiobook'){
-        row.fetchStatus = 'error'
-        row.errorMessage = audiobookError.value?.statusMessage}
-      })
-      
-    }
-    else{
-     audiobookData.value!.results.forEach(res => {
-      const row = books.value.find(r => r.inputTitle === res.title && r.bookType === 'audiobook' && r.fetchStatus === 'loading')
-      if (!row) return
-      if (res.error) {
-        // console.log(`Error here: ${res.error}`)
-        if (res.error === "error book not found"){
-          // console.log("Yay")
-          row.fetchStatus       = 'notfound'
-          row.errorMessage = res.error
-        } else{
-        
-        row.fetchStatus       = 'error'
-        row.errorMessage = res.error
-        }
-      } else if (res.book) {
-        row.fetchStatus         = 'found'
-        row.imageLink      = res.book.image_link
-        row.retrievedTitle = res.book.title
-        row.magnetLink   = res.book.magnet_link
-      }
-    })
-  }
-
   
-  }
+  const audiobookPromise = audiobookRequest.length ? (async () => {
+        const { data: audiobookData, error: audiobookError } = await useFetch<
+        {results: Array<{
+          title: string, 
+          book?:{
+            image_link: string
+            href_link: string
+            magnet_link: string
+            title: string
+            author?: string
+        }
+          error?: string
+        }>}>('/api/searchAudioBooks', {
+          method: 'post',
+          body: { request: audiobookRequest }
+        })
 
-  if (ebookRequest.length != 0){  
+        if (audiobookError.value) {
 
-    // console.log(ebookRequest)
+
+          toast.add({title: "Uh oh! Panikk ahhhh, there was an error!", 
+            description: String(audiobookError.value?.statusMessage || audiobookError.value),
+            icon: 'i-heroicons-exclamation-triangle',
+            color: 'error'
+          })
+          
+          books.value.forEach(row => {
+            if (row.bookType === 'audiobook'){
+            row.fetchStatus = 'error'
+            row.errorMessage = audiobookError.value?.statusMessage}
+          })
+          
+        }
+        else{
+        audiobookData.value!.results.forEach(res => {
+          const row = books.value.find(r => r.inputTitle === res.title && r.bookType === 'audiobook' && r.fetchStatus === 'loading')
+          if (!row) return
+          if (res.error) {
+            // console.log(`Error here: ${res.error}`)
+            if (res.error === "error book not found"){
+              // console.log("Yay")
+              row.fetchStatus       = 'notfound'
+              row.errorMessage = res.error
+            } else{
+            
+            row.fetchStatus       = 'error'
+            row.errorMessage = res.error
+            }
+          } else if (res.book) {
+            row.fetchStatus         = 'found'
+            row.imageLink      = res.book.image_link
+            row.retrievedTitle = res.book.title
+            row.magnetLink   = res.book.magnet_link
+          }
+        })
+        }
+      })() : Promise.resolve({ data: ref({ response: [] }), error: ref(null) })
+    
+
+
+  const ebookPromise = ebookRequest.length ?  (async () => {
+    
     const { data: ebookData, error: ebookError } = await useFetch<
     {response: Array<{
       title: string, 
@@ -360,7 +360,9 @@ async function onRequest () {
     })
   }  
   
-}
+})() : Promise.resolve({ data: ref({ response: [] }), error: ref(null) })
+
+  // await Promise.allSettled([audiobookPromise, ebookPromise])
   
 }
 
@@ -480,9 +482,7 @@ TODO:
   <section class="flex items-center justify-center h-full w-full overflow-auto">
   
   <div class="flex flex-col gap-2 items-center justify-center">
-    <TransitionGroup>
-      <UTable :data="books" v-if="books.length > 0" class="pb-6" :columns="columns" loading-color="primary" loading-animation="carousel" :loading="tableLoading"/>
-    </TransitionGroup>
+      <UTable :data="books" v-if="books.length > 0" sticky class="pb-6 max-h-[400px] overflow-auto" :columns="columns" loading-color="primary" loading-animation="carousel" :loading="tableLoading"/>
     <div>
 
     <UForm  attach :schema="BookSchema" :state="state"  @submit="onSubmit">

@@ -50,8 +50,8 @@ jobs:
         push: true
         tags: |
           ${{ env.ARRDIO_FRONTEND_IMAGE_NAME }}:${{ steps.vars.outputs.TAGS }}
-          cache-from: type=registry,ref=${{ env.ARRDIO_FRONTEND_IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.ARRDIO_FRONTEND_IMAGE_NAME }}:buildcache,mode=max
+        cache-from: type=registry,ref=${{ env.ARRDIO_FRONTEND_IMAGE_NAME }}:buildcache
+        cache-to: type=registry,ref=${{ env.ARRDIO_FRONTEND_IMAGE_NAME }}:buildcache,mode=max
           
     - name: Build and push Arrdio-Backend
       uses: docker/build-push-action@v6
@@ -60,6 +60,6 @@ jobs:
         push: true
         tags: |
           ${{ env.ARRDIO_BACKEND_IMAGE_NAME }}:${{ steps.vars.outputs.TAGS }}
-          cache-from: type=registry,ref=${{ env.ARRDIO_BACKEND_IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.ARRDIO_BACKEND_IMAGE_NAME }}:buildcache,mode=max
+        cache-from: type=registry,ref=${{ env.ARRDIO_BACKEND_IMAGE_NAME }}:buildcache
+        cache-to: type=registry,ref=${{ env.ARRDIO_BACKEND_IMAGE_NAME }}:buildcache,mode=max
       

@@ -18,4 +18,5 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	golang.org/x/exp v0.0.0-20241108190413-2d47ceb2692f // indirect
 	golang.org/x/net v0.39.0 // indirect
+	golift.io/starr v1.2.0 // indirect
 )

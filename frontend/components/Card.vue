@@ -85,10 +85,10 @@
           'bg-black-700',                                 /* same dark fill */
           'border-2 border-primary',                    /* solid 2px teal edge */
           'shadow-[0_0_8px_0_rgba(54,209,178,0.6),0_0_20px_2px_rgba(54,209,178,0.9)]',
-          'ml-5'
+          'flex items-center justify-center'
         ].join(' ')
       }">
-                    <UIcon name="icon-park-outline:add" class="size-10 text-primary" />
+                    <UIcon name="icon-park-outline:add" class="size-10 text-primary place-self-center" />
                 </UCard>
                 <template #body>
                     <slot name="enterForm"/>

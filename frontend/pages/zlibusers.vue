@@ -16,15 +16,17 @@
 </script>
 
 <template>
-    <section class="h-full w-full">
-        <div >
-            <h1 class="font-header text-primary  text-[40px] text-shadow[#36d1b2] leading-none tracking-wide ">ZLibrary Users</h1>
+    <section class="h-full w-full overflow-auto">
+        <div class="flex flex-col items-left">
+            <h1 class="font-header text-primary  text-[40px] text-shadow[#36d1b2] leading-none tracking-wide ">Zlibrary Users</h1>
             
-            <hr class="border-0 border-t-2 border-green-600 w-64 mx-auto mb-8" />
+            <hr class="flex border-0 border-t-2 border-green-600 w-sm lg:w-lg mt-2 mb-8" />
         </div>
+       
     
-        <div class="flex flex-row gap-1">
-            <div class="flex flex-row gap-5">
+    
+         <div class="flex flex-col lg:flex-row gap-8">
+            <div class="flex flex-col lg:flex-row gap-8">
                 <ZLibraryUserCard v-for="user in data" 
                 :key="user.id"
                 :email="user.email"

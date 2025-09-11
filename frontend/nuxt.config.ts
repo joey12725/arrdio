@@ -18,13 +18,6 @@ export default defineNuxtConfig({
       },
     },
   },
-  vite: {
-    server: {
-      host: true,
-      allowedHosts: ['.ngrok-free.app'],
-      hmr: { protocol: 'https', host: process.env.NGROK_HOST, port: 443 }
-    }
-  },
   ui: {
     theme: {
       colors: ['primary', 'secondary', "netural", "info", 'error', "success", "warning"]
@@ -37,22 +30,37 @@ export default defineNuxtConfig({
           clientId:         '',
           clientSecret:      '',
           authorizationUrl: `https://auth.example.com/application/o/authorize/`,
-            tokenUrl:         `https://auth.example.com/application/o/token/`,
+          tokenUrl:         `https://auth.example.com/application/o/token/`,
           userInfoUrl:      `https://auth.example.com/application/o/userinfo/`,     
           openIdConfiguration: '',
           redirectUri: '',
           scope: ['openid','profile','email','offline_access'],
           pkce: true,
+
         }
       },
       // turn on the global guard and opt into a custom login page
       middleware: {
-        globalMiddlewareEnabled: true,
+        globalMiddlewareEnabled: process.env.NODE_ENV === 'production',
         customLoginPage: true
       },
       devMode: {
-      enabled: false,
-    }
+        enabled: process.env.NODE_ENV !== 'production',
+        userName: 'Dev User',
+        userInfo: { email: 'dev@example.com', providerName: 'dev' },
+        // Handy if your API expects a bearer token format
+        generateAccessToken: true,
+        claims: { role: 'developer' },
+        issuer: 'dev-issuer',
+        audience: 'dev-app',
+        subject: 'dev-user'
+    },
+    session: {
+      expirationCheck: process.env.NODE_ENV === 'production', // false in dev, true in prod
+      automaticRefresh: process.env.NODE_ENV === 'production',
+      expirationThreshold: 60,       // refresh 60s before exp (optional)
+      maxAge: 60 * 60 * 24 * 7       // 7d session cookie (adjust to taste)
+  }
   },
 
 })

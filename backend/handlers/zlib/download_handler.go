@@ -6,6 +6,8 @@ import (
 	"net/http"
 )
 
+type Quota = int
+
 func SearchBook(w http.ResponseWriter, r *http.Request) {
 	var request SearchRequest
 
@@ -57,10 +59,18 @@ func DownloadBook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "error request body must not be empty", http.StatusBadRequest)
 		return
 	}
-	// fmt.Println("Test2")
+
+	warning := ""
+
+	refreshError := RefreshZLibUser()
+
+	if refreshError != nil {
+		warning = fmt.Sprintf("%v\n %v", warning, refreshError.Error())
+	}
+
 	zLibUsers, err := queryZLibUser([]string{"id", "email", "download_count", "password", "user_id", "user_key"})
 
-	// fmt.Println("Test3")
+	remainingQuota := make([]Quota, len(zLibUsers))
 
 	if err != nil {
 		fmt.Printf("error getting zlibrary users: %v", err.Error())
@@ -68,20 +78,19 @@ func DownloadBook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(zLibUsers) <= 0 {
-		fmt.Printf("error no zlibrary users set up")
-		http.Error(w, "error no zlibrary users set up", http.StatusInternalServerError)
-		return
-	}
 	fmt.Printf("Request: %v\n", request)
 	var totalDownloadCount int
 
-	for _, user := range zLibUsers {
-		totalDownloadCount += 10 - user.Download_Count
+	for i, user := range zLibUsers {
+		remaining := 10 - user.Download_Count
+		if remaining < 0 {
+			remaining = 0
+		}
+		totalDownloadCount += remaining
+		remainingQuota[i] = remaining
 	}
 
 	// fmt.Println("Test4")
-	warning := ""
 
 	downloadList := request.Request
 	if totalDownloadCount < len(request.Request) {
@@ -92,12 +101,19 @@ func DownloadBook(w http.ResponseWriter, r *http.Request) {
 	zLibIndex := 0
 
 	for _, download := range downloadList {
-		if zLibUsers[zLibIndex].Download_Count > 10 {
-			zLibIndex++
+		found := false
+		for index, quota := range remainingQuota {
+			if quota > 0 {
+				zLibIndex = index
+				found = true
+				break
+			}
 		}
-		if zLibIndex > len(zLibUsers) {
+
+		if !found {
 			break
 		}
+
 		zLibClient := NewClient()
 
 		zLibClient.UserID = int(zLibUsers[zLibIndex].ID)
@@ -105,27 +121,26 @@ func DownloadBook(w http.ResponseWriter, r *http.Request) {
 
 		savePath := getSavePath(download.Category)
 		// fmt.Println(savePath)
-		err = zLibClient.downloadBook(download.BookItem, savePath, zLibUsers[zLibIndex].User_ID, zLibUsers[zLibIndex].User_Key)
+		downloadErr := zLibClient.downloadBook(download.BookItem, savePath, zLibUsers[zLibIndex].User_ID, zLibUsers[zLibIndex].User_Key)
 
-		if err != nil {
-			fmt.Printf("error calling zlibrary's endpoint: %v\n", err.Error())
-			errorMessage := fmt.Sprintf("error calling zlibrary's endpoint: %v", err.Error())
+		if downloadErr != nil {
+			fmt.Printf("error calling zlibrary's endpoint: %v\n", downloadErr.Error())
+			errorMessage := fmt.Sprintf("error calling zlibrary's endpoint: %v", downloadErr.Error())
 			response.Response = append(response.Response, DownloadResult{BookItem: download.BookItem, Error: errorMessage})
-		} else {
-			response.Response = append(response.Response, DownloadResult{BookItem: download.BookItem, Error: ""})
+			continue
 		}
 
+		remainingQuota[zLibIndex]--
+		response.Response = append(response.Response, DownloadResult{BookItem: download.BookItem, Error: ""})
+
 	}
 
-	refreshError := RefreshZLibUser()
-	if refreshError != nil {
-		warning = fmt.Sprintf("%v\n %v", warning, refreshError.Error())
-	}
 	if warning != "" {
 		response.Warning = warning
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusPartialContent)
 		json.NewEncoder(w).Encode(response)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")

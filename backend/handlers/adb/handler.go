@@ -96,10 +96,6 @@ func SearchBooks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// var wg sync.WaitGroup
-	// results := make([]BooksResult, len(req.Titles))
-	// wg.Add(len(req.Titles))
-
 	results := make([]BooksResult, len(req.Request))
 	var wg sync.WaitGroup
 	wg.Add(len(req.Request))

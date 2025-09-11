@@ -4,8 +4,11 @@ import * as v from 'valibot';
 import type { FormSubmitEvent, TableColumn } from '@nuxt/ui'
 import { h, resolveComponent } from 'vue'
 import { routeLocationKey, routerViewLocationKey } from 'vue-router';
+import Carousel from '~/components/Carousel.vue';
+import { useMediaQuery} from '@vueuse/core'
 
-const UBadge = resolveComponent('UBadge')
+const isMobile = useMediaQuery('(max-width: 1024px)')
+// const Badge = resolveComponent('Badge')
 const UIcon = resolveComponent('UIcon')
 const UButton = resolveComponent('UButton')
 const toast = useToast()
@@ -16,6 +19,7 @@ const BookSchema = v.object({
   downloadCategory: v.pipe(v.string(), v.trim()),
   bookType: v.pipe(v.string(), v.trim())
 })
+
 
 
 type Book = {inputTitle: String, downloadCategory: String, bookType: String, imageLink?: String, retrievedTitle?: String, downloadLink?: String}
@@ -36,11 +40,17 @@ type BookRow = {      // unique key
   extension?: string
 }
 
-interface DownloadCategory {
-        id: number
-        category: string
-        savepath: string
+type DownloadCategory = {
+    id: number
+    category: string
+    savepath: string
 }
+
+type FormattedCategory = {
+    label: string
+    value:string
+}
+
 type Schema = v.InferOutput<typeof BookSchema>
 
 const blankBook = (): Schema => ({ title: '', downloadCategory: '', bookType: 'both' })
@@ -51,7 +61,7 @@ const books = ref<BookRow[]>([])
 
 const isDownloading = ref(false)
 
-const downloadCategories = ref<DownloadCategory[]>([])
+const downloadCategories = ref<FormattedCategory[]>([])
 
 
 const state = reactive<Schema>({
@@ -65,8 +75,11 @@ const hasDownloadableBooks = computed(() =>
 
 const { data: fetchedCategories, error } = await useFetch<DownloadCategory[]>('/api/getCategory')
 if (!error.value && fetchedCategories.value) {
-  downloadCategories.value = fetchedCategories.value
-  // console.log(downloadCategories.value)
+  downloadCategories.value = fetchedCategories.value.map((category: DownloadCategory) => ({
+        label: category.category,
+        value: category.category
+      }))
+    console.log(downloadCategories.value)
 } else {
   console.log(error.value)
 }
@@ -85,13 +98,10 @@ const columns: TableColumn<BookRow>[] = [
     header: 'Download Category',
     cell: ({ row }) => {
       
-      const formattedCategories = downloadCategories.value.map((category: DownloadCategory) => ({
-        label: category.category,
-        value: category.category
-      }))
+
         
       return h(USelectMenu, {
-        items: formattedCategories,
+        items: downloadCategories.value,
         class: "w-40",
         modelValue: row.original.downloadCategory,
         'onUpdate:modelValue': (newVal: string) => {
@@ -107,18 +117,7 @@ const columns: TableColumn<BookRow>[] = [
     cell: ({ row }) => {
       const status = row.getValue('fetchStatus') as BookRow['fetchStatus']
 
-      const color = {
-        found: 'success' as const,
-        error: 'error' as const,
-        pending: 'warning' as const,
-        loading: 'info' as const,
-        downloaded: 'success' as const,
-        notfound: 'error' as const
-      }[status]
-
-      return h(UBadge, { class: 'capitalize', variant: 'subtle', color }, () =>
-        status
-      )
+      
     }
   },
    {
@@ -206,9 +205,6 @@ function removeItem() {
   }
 }
 
-const tableLoading = computed(() =>
-  books.value.some(r => r.fetchStatus === 'loading')
-)
 
 function onSubmit (e: FormSubmitEvent<Schema>) {
   const defaultCategoryFor = (type: 'audiobook' | 'ebook') =>
@@ -375,6 +371,7 @@ async function downloadBook(rows: Array<BookRow>) {
   
   const audiobookRequest = audiobooks.map(book => ({"magnet": book.magnetLink, "category": book.downloadCategory}))
 
+  console.log(ebooks)
   
   const ebookRequest = ebooks.map(b => ({"book":{"title": b.retrievedTitle, "author": "", "id": b.id, "hash": b.hash, "extension": b.extension}, "category": b.downloadCategory}))
 
@@ -419,7 +416,7 @@ async function downloadBook(rows: Array<BookRow>) {
   })
 }
   if (ebookRequest.length > 0){
-    console.log(`Ebook category is ${ebookRequest[0].category}`)
+    
   const { data: ebookData, error: ebookError } = await useFetch<{
     warning: string
     response: Array<{
@@ -438,6 +435,7 @@ async function downloadBook(rows: Array<BookRow>) {
      });
 
   if (ebookError.value) {
+    console.log(ebookError.value)
     toast.add({title: "Uh oh! Panikk ahhhh, there was an error!", 
       description: String(ebookError.value?.message || ebookError.value),
       icon: 'i-heroicons-exclamation-triangle',
@@ -451,10 +449,11 @@ async function downloadBook(rows: Array<BookRow>) {
     const row = rows.find(r => r.retrievedTitle === res.book?.title && r.fetchStatus === "found")
     if (!row) return
     if (res.error) {
-      // console.log("test")
+
       row.fetchStatus       = 'error'
       row.errorMessage = res.error
     } else {
+ 
       row.fetchStatus         = 'downloaded'
 
     //   const idx = rows.indexOf(row)
@@ -476,17 +475,27 @@ TODO:
 - Add row action that links to the qbittorrent download or whatever ebook's equaivelent would be
 - Have ebooks deal with warnings and partial content response codes  
 */
+
 </script>
 
 <template>
-  <section class="flex items-center justify-center h-full w-full overflow-auto">
+
+  
+  <section class="flex items-center justify-center h-full w-full overflow-auto ">
   
   <div class="flex flex-col gap-2 items-center justify-center">
-      <UTable :data="books" v-if="books.length > 0" sticky class="pb-6 max-h-[400px] overflow-auto" :columns="columns" loading-color="primary" loading-animation="carousel" :loading="tableLoading"/>
+      
+    
+    
+    <div v-if="books.length > 0" >
+      <UTable :data="books" v-if="!isMobile" sticky class="pb-6 max-h-[400px] overflow-auto overflow-x-auto" :columns="columns" loading-color="primary" loading-animation="carousel" :loading="tableLoading"/>
+      <Carousel v-if="isMobile" :books="books" :categories="downloadCategories" @download="(n) => downloadBook([n])"/>
+    </div>
+
     <div>
 
     <UForm  attach :schema="BookSchema" :state="state"  @submit="onSubmit">
-    <div class="flex items-center justify-center">
+    <div class="flex flex-col items-center justify-center ">
       <UFormField label="Title" name="title">
       <UInput v-model="state.title"/>
     </UFormField>
@@ -495,12 +504,12 @@ TODO:
   
 
 
-    <div class="flex items-center justify-center pt-4">
+    <div class="flex flex-col lg:flex-row items-center justify-center pt-4">
       <UButton color="primary" type="submit"  variant="subtle" size="sm" >
         Add Item
       </UButton>
 
-      <UButton color="primary" variant="ghost" size="sm" @click="removeItem()">
+      <UButton color="error" variant="ghost" size="sm" @click="removeItem()">
         Remove Item
       </UButton>
       <UFormField name="bookType" >

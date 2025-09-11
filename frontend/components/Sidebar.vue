@@ -32,7 +32,7 @@ const navItems = ref(
 
 <template>
   <!-- full-height dark sidebar -->
-  <aside class="h-full w-60 bg-header-800 text-white flex flex-col">
+  <aside class="h-full bg-header-800 text-white flex flex-col ">
     <!-- logo at top -->
     <div class="p-4 flex-shrink-0">
 
@@ -46,7 +46,8 @@ const navItems = ref(
         variant="pill"
         highlight
         highlight-color="green"
-        class="bg-transparent"  
+        class="bg-transparent" 
+        
 
         
       />

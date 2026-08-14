@@ -6,46 +6,25 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ashkaty/arrdio-api/services/models"
 	"github.com/playwright-community/playwright-go"
 
 	"context"
 	"net/http"
 )
 
-type AudioBook struct {
-	ImageLink  string `json:"image_link"`
-	HrefLink   string `json:"href_link"`
-	MagnetLink string `json:"magnet_link"`
-	Title      string `json:"title"`
-	Author     string `json:"author,omitempty"`
-}
-
-type Book struct {
-	Title  string `json:"title"`
-	Author string `json:"author"`
-}
-type DownloadItem struct {
-	BookItem Book `json:"book"`
-	Category string
-}
-type DownloadRequest struct {
-	Request []DownloadItem `json:"request"`
-}
-
-// per-title result
-type BooksResult struct {
-	Title     string     `json:"title"`
-	AudioBook *AudioBook `json:"book,omitempty"`
-	Error     string     `json:"error,omitempty"`
-}
-
-// response payload for /books
-type BooksResponse struct {
-	Results []BooksResult `json:"results"`
-}
-
+// SearchBooks handles audiobook searches on Audiobookbay
+// @Summary Search audiobooks on Audiobookbay
+// @Tags ABB
+// @Accept json
+// @Produce json
+// @Param request body models.Request true "Search request"
+// @Success 200 {object} models.AudiobookResult
+// @Failure 400 {string} string "Invalid request"
+// @Failure 500 {string} string "Server error"
+// @Router /abb/searchbooks [post]
 func SearchBooks(w http.ResponseWriter, r *http.Request) {
-	var req DownloadRequest
+	var req models.Request
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON payload: "+err.Error(), http.StatusBadRequest)
@@ -96,7 +75,7 @@ func SearchBooks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results := make([]BooksResult, len(req.Request))
+	results := make([]models.AudiobookResultItem, len(req.Request))
 	var wg sync.WaitGroup
 	wg.Add(len(req.Request))
 
@@ -107,12 +86,13 @@ func SearchBooks(w http.ResponseWriter, r *http.Request) {
 
 			ctx, cancel := context.WithTimeout(clientCtx, 15*time.Second)
 			defer cancel()
-			book, err := FetchBook(ctx, browserCtx, item.BookItem.Title)
+			// fmt.Printf("Book Request: %s", item)
+			book, err := FetchBook(ctx, browserCtx, item.Book.Title)
 			if err != nil {
-				fmt.Printf("%v not found\n", item.BookItem.Title)
-				results[i] = BooksResult{Title: item.BookItem.Title, Error: err.Error(), AudioBook: &book}
+				fmt.Printf("%v not found\n", item.Book.Title)
+				results[i] = models.AudiobookResultItem{Title: item.Book.Title, Error: err.Error(), AudioBook: &book}
 			} else {
-				results[i] = BooksResult{Title: item.BookItem.Title, AudioBook: &book}
+				results[i] = models.AudiobookResultItem{Title: item.Book.Title, AudioBook: &book}
 			}
 		}()
 	}
@@ -120,26 +100,26 @@ func SearchBooks(w http.ResponseWriter, r *http.Request) {
 	wg.Wait()
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(BooksResponse{Results: results})
+	json.NewEncoder(w).Encode(models.AudiobookResult{Result: results})
 }
 
 // TODO: abstract this code out to another file
-func FetchBook(clientCtx context.Context, browserCtx playwright.BrowserContext, bookTitle string) (AudioBook, error) {
+func FetchBook(clientCtx context.Context, browserCtx playwright.BrowserContext, bookTitle string) (models.AudioBook, error) {
 
 	page, err := searchBook(bookTitle, browserCtx)
 
 	if err != nil {
-		return AudioBook{Title: ""}, err
+		return models.AudioBook{Title: ""}, err
 	}
 
 	notFound, notFoundError := page.Locator("#content > h3").InnerText()
 
 	if notFoundError == nil && notFound == "Not Found" {
-		return AudioBook{Title: ""}, fmt.Errorf("error book not found")
+		return models.AudioBook{Title: ""}, fmt.Errorf("error book not found")
 	}
 	post := page.Locator("div.post:nth-child(2)")
 
-	book := AudioBook{}
+	book := models.AudioBook{}
 
 	book.Title, _ = post.Locator(".postTitle a").InnerText()
 	// fmt.Println("%v", bookTitle)
@@ -155,8 +135,8 @@ func FetchBook(clientCtx context.Context, browserCtx playwright.BrowserContext, 
 
 	magnetLink := getMagnetLink(page, book.HrefLink)
 	book.MagnetLink = magnetLink
-
-	// fmt.Println("%v", bookList)
+	book.Source = "Audiobookbay"
+	// fmt.Printf("Fetch Book: %s", book)
 	return book, nil
 
 }

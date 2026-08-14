@@ -1,5 +1,5 @@
 # ---------- build stage ----------
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 
 
@@ -11,7 +11,7 @@ RUN corepack enable
 COPY package.json yarn.lock ./
 
 # Install prod + dev deps reproducibly
-RUN yarn install --frozen-lockfile
+RUN yarn install
 
 # Copy the rest of the source and build
 COPY . .

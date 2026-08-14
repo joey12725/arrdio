@@ -1,10 +1,9 @@
 <!-- pages/auth/login.vue -->
 <script setup lang="ts">
 definePageMeta({ layout: 'auth' })
-
-import { useOidcAuth } from '#imports'
-
-const { login } = useOidcAuth()
+const loginWithAuthentik = () => {
+  window.location.href = '/api/auth/authentik'
+}
 
 
 
@@ -16,7 +15,7 @@ const { login } = useOidcAuth()
     <button
       type="button"                  
       class="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-      @click="login('oidc')"               
+      @click="loginWithAuthentik"               
     >
       Login with Authentik
     </button>

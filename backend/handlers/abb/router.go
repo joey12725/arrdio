@@ -13,12 +13,7 @@ func Router() chi.Router {
 		w.Write([]byte("Accessing AudioBookBay Endpoint\n"))
 	})
 
-	// /audiobookshelf/getbook
 	r.Post("/searchbooks", SearchBooks)
 
-	// /audiobookshelf/getlistbook
-	// r.Get("/getlistbook", GetListBook)
-
-	// add more routes or middleware (r.Use) as you wish
 	return r
 }

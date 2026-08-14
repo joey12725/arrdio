@@ -4,12 +4,26 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"github.com/ashkaty/arrdio-api/services/models"
 )
 
 type Quota = int
 
+// SearchBook handles ebook searches on ZLibrary
+// @Summary Search ebooks on ZLibrary
+// @Tags ZLibrary, Deprecieate
+// @Accept json
+// @Produce json
+// @Param request body models.Request true "Search request"
+// @Success 200 {object} models.EbookResult
+// @Failure 400 {string} string "Invalid request"
+// @Failure 424 {string} string "No Zlibrary Users Defined"
+// @Failure 500 {string} string "Server error"
+// @Router /zlib/searchbook [post]
+// @Deprecated
 func SearchBook(w http.ResponseWriter, r *http.Request) {
-	var request SearchRequest
+	var request models.Request
 
 	err := json.NewDecoder(r.Body).Decode(&request)
 
@@ -25,15 +39,20 @@ func SearchBook(w http.ResponseWriter, r *http.Request) {
 
 	zLibClient := NewClient()
 
-	var responseList SearchResponse
+	zLibUsers, err := queryZLibUser([]string{"email", "password"})
+	if len(zLibUsers) == 0 {
+		http.Error(w, "error no zlibrary users defined", http.StatusFailedDependency)
+	}
 
-	// fmt.Printf("%v", request.Request)
+	zLibClient.login(zLibUsers[0].Email, zLibUsers[0].Password)
+	var responseList []models.EbookResultItem
+
 	for _, bookSearch := range request.Request {
 
 		// fmt.Printf("This is book title and author %v , %v\n", bookSearch.BookItem.Title, bookSearch.BookItem.Author)
-		books, err := zLibClient.searchBook(fmt.Sprintf("%v , %v", bookSearch.BookItem.Title, bookSearch.BookItem.Title))
+		book, err := zLibClient.searchBook(fmt.Sprintf("%v", bookSearch.Book.Title))
 
-		responseList.Response = append(responseList.Response, SearchResult{Books: books, Error: err, Title: bookSearch.BookItem.Title})
+		responseList = append(responseList, models.EbookResultItem{Title: bookSearch.Book.Title, EBook: book, Error: err.Error()})
 	}
 
 	// fmt.Printf("%v\n", responseList)
@@ -43,6 +62,18 @@ func SearchBook(w http.ResponseWriter, r *http.Request) {
 
 }
 
+// DownloadBook handles ebook downloads from ZLibrary
+// @Summary Download ebooks from ZLibrary
+// @Tags ZLibrary
+// @Accept json
+// @Produce json
+// @Param request body DownloadRequest true "Download request"
+// @Success 200 {object} DownloadResponse
+// @Success 206 {object} DownloadResponse "Partial content (quota exceeded)"
+// @Failure 400 {string} string "Invalid request"
+// @Failure 500 {string} string "Server error"
+// @Router /zlib/downloadbook [post]
+// @Deprecated
 func DownloadBook(w http.ResponseWriter, r *http.Request) {
 	var request DownloadRequest
 	var response DownloadResponse

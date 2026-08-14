@@ -13,6 +13,10 @@ import (
 	"io"
 
 	"encoding/json"
+
+	"github.com/ashkaty/arrdio-api/services/models"
+
+	"crypto/tls"
 )
 
 type Client struct {
@@ -30,9 +34,9 @@ type loginResponse struct {
 }
 
 type searchResponse struct {
-	Success int     `json:"success"`
-	Error   string  `json:"error"`
-	Books   []EBook `json:"books"`
+	Success int            `json:"success"`
+	Error   string         `json:"error"`
+	Books   []models.EBook `json:"books"`
 }
 
 type downloadResponse struct {
@@ -52,20 +56,25 @@ type file struct {
 	Link      string `json:"downloadLink"`
 	Extension string `json:"extension"`
 }
-type EBook struct {
-	Title     string `json:"title"`
-	Author    string `json:"author"`
-	Year      int    `json:"year"`
-	ImageLink string `json:"cover"`
-	ID        int    `json:"id"`
-	Extension string `json:"extension"`
-	Hash      string `json:"hash"`
-}
+
+// type EBook struct {
+// 	Title     string `json:"title"`
+// 	Author    string `json:"author"`
+// 	Year      int    `json:"year"`
+// 	ImageLink string `json:"cover"`
+// 	ID        int    `json:"id"`
+// 	Extension string `json:"extension"`
+// 	Hash      string `json:"hash"`
+// }
 
 func NewClient() *Client {
+	tr := &http.Transport{
+		TLSClientConfig:   &tls.Config{InsecureSkipVerify: true},
+		DisableKeepAlives: true,
+	}
 	return &Client{
-		BaseURL:    "https://z-library.sk",
-		HttpClient: http.Client{},
+		BaseURL:    "https://z-library.id",
+		HttpClient: http.Client{Transport: tr},
 	}
 }
 func (c *Client) login(email string, password string) error {
@@ -111,7 +120,7 @@ func (c *Client) login(email string, password string) error {
 	return nil
 }
 
-func (c *Client) searchBook(title string) (*EBook, error) {
+func (c *Client) searchBook(title string) (*models.EBook, error) {
 	endpoint := fmt.Sprintf("%s/eapi/book/search", c.BaseURL)
 
 	form := url.Values{}
@@ -153,11 +162,15 @@ func (c *Client) searchBook(title string) (*EBook, error) {
 		return nil, fmt.Errorf("%v", response.Error)
 	}
 
-	// fmt.Printf("%v", response)
-	return &response.Books[0], nil
+	if len(response.Books) == 0 {
+		return nil, fmt.Errorf("error book not found")
+	}
+	book := response.Books[0]
+	book.Source = "ZLibrary"
+	return &book, nil
 }
 
-func (c *Client) downloadBook(book EBook, outputDir string, userID string, userKey string) error {
+func (c *Client) downloadBook(book models.EBook, outputDir string, userID string, userKey string) error {
 	endpoint := fmt.Sprintf("%s/eapi/book/%v/%v/file", c.BaseURL, book.ID, book.Hash)
 
 	// fmt.Printf("Endpoint: %v\n", endpoint)

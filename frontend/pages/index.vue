@@ -13,6 +13,7 @@ const UIcon = resolveComponent('UIcon')
 const UButton = resolveComponent('UButton')
 const toast = useToast()
 const USelectMenu = resolveComponent('USelectMenu')
+const Badge = resolveComponent('Badge')
 
 const BookSchema = v.object({
   title: v.pipe(v.string('Required'), v.trim(),  v.nonEmpty('Required')),
@@ -117,7 +118,7 @@ const columns: TableColumn<BookRow>[] = [
     cell: ({ row }) => {
       const status = row.getValue('fetchStatus') as BookRow['fetchStatus']
 
-      
+      return h(Badge, { badgeStatus: status })
     }
   },
    {
@@ -225,12 +226,21 @@ function onSubmit (e: FormSubmitEvent<Schema>) {
 async function onRequest () {
 
   books.value.forEach(row => {
-    if (row.fetchStatus === 'pending') row.fetchStatus = 'loading'
+    if (row.fetchStatus === 'pending') {
+      row.fetchStatus = 'loading'
+      row.errorMessage = undefined
+      row.imageLink = undefined
+      row.retrievedTitle = undefined
+      row.magnetLink = undefined
+      row.id = undefined
+      row.hash = undefined
+      row.extension = undefined
+    }
   })                                                                                           
 
-  const audiobooks = books.value.filter(book => book.bookType === "audiobook")
+  const audiobooks = books.value.filter(book => book.bookType === "audiobook" && book.fetchStatus === 'loading')
   
-  const ebooks = books.value.filter(book => book.bookType === "ebook")
+  const ebooks = books.value.filter(book => book.bookType === "ebook" && book.fetchStatus === 'loading')
   
   const audiobookRequest = audiobooks.map(b => ({"book":{"title": b.inputTitle}}))
 
@@ -274,8 +284,8 @@ async function onRequest () {
           
         }
         else{
-        audiobookData.value!.results.forEach(res => {
-          const row = books.value.find(r => r.inputTitle === res.title && r.bookType === 'audiobook' && r.fetchStatus === 'loading')
+        audiobookData.value!.results.forEach((res, index) => {
+          const row = audiobooks[index]
           if (!row) return
           if (res.error) {
             // console.log(`Error here: ${res.error}`)
@@ -338,14 +348,22 @@ async function onRequest () {
     }
 
     else{ 
-     ebookData.value!.response.forEach(res => {
+     ebookData.value!.response.forEach((res, index) => {
 
-      const row = books.value.find(r => r.inputTitle === res.title && r.bookType === 'ebook' && r.fetchStatus === 'loading')
+      const row = ebooks[index]
       if (!row) return
       if (res.error) {
-        row.fetchStatus       = 'error'
-        row.errorMessage = res.error
-      } else if (res.book) {
+            // console.log(`Error here: ${res.error}`)
+            if (res.error === "error book not found"){
+              // console.log("Yay")
+              row.fetchStatus       = 'notfound'
+              row.errorMessage = res.error
+            } else{
+            
+            row.fetchStatus       = 'error'
+            row.errorMessage = res.error
+            }
+          } else if (res.book) {
         row.fetchStatus         = 'found'
         row.imageLink      = res.book.cover
         row.retrievedTitle = res.book.title
@@ -358,7 +376,7 @@ async function onRequest () {
   
 })() : Promise.resolve({ data: ref({ response: [] }), error: ref(null) })
 
-  // await Promise.allSettled([audiobookPromise, ebookPromise])
+  await Promise.allSettled([audiobookPromise, ebookPromise])
   
 }
 

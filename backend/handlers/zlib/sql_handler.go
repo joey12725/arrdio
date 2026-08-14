@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
-	db "github.com/ashkaty/arrdio-api/services"
+	db "github.com/ashkaty/arrdio-api/services/db"
 
 	"encoding/json"
 
@@ -15,6 +15,15 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// PutCategory adds a new category
+// @Summary Add a category
+// @Tags ZLibrary
+// @Accept json
+// @Produce json
+// @Param request body CategoryRequest true "Category request"
+// @Success 200 {object} CategoryResponse
+// @Failure 400 {string} string "Invalid request or duplicate entry"
+// @Router /zlib/putcategory [put]
 func PutCategory(w http.ResponseWriter, r *http.Request) {
 
 	var request CategoryRequest
@@ -59,6 +68,13 @@ func PutCategory(w http.ResponseWriter, r *http.Request) {
 
 }
 
+// GetCateory retrieves all categories
+// @Summary Get all categories
+// @Tags ZLibrary
+// @Produce json
+// @Success 200 {array} CategoryResponse
+// @Failure 500 {string} string "Server error"
+// @Router /zlib/getcategory [get]
 func GetCateory(w http.ResponseWriter, r *http.Request) {
 
 	var categoriesList []CategoryResponse
@@ -94,6 +110,16 @@ func GetCateory(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(categoriesList)
 
 }
+
+// PutZLibUser adds a new ZLibrary user
+// @Summary Add a ZLibrary user
+// @Tags ZLibrary
+// @Accept json
+// @Produce json
+// @Param request body ZLibUserRequest true "User request"
+// @Success 200 {object} ZLibUser
+// @Failure 400 {string} string "Invalid request or duplicate entry"
+// @Router /zlib/putzlibuser [put]
 func PutZLibUser(w http.ResponseWriter, r *http.Request) {
 
 	var request ZLibUserRequest
@@ -152,6 +178,13 @@ func PutZLibUser(w http.ResponseWriter, r *http.Request) {
 
 // TODO: Finish refresh function and set it up as cron job
 
+// GetZLibUser retrieves all ZLibrary users
+// @Summary Get all ZLibrary users
+// @Tags ZLibrary
+// @Produce json
+// @Success 200 {array} ZLibUser
+// @Failure 500 {string} string "Server error"
+// @Router /zlib/getzlibuser [get]
 func GetZLibUser(w http.ResponseWriter, r *http.Request) {
 
 	zLibUsers, err := queryZLibUser([]string{"id", "email", "download_count"})
@@ -167,6 +200,14 @@ func GetZLibUser(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(zLibUsers)
 }
 
+// DeleteUser deletes a ZLibrary user by email
+// @Summary Delete a ZLibrary user
+// @Tags ZLibrary
+// @Param email path string true "User email"
+// @Success 200 {string} string "Delete successful"
+// @Failure 404 {string} string "User not found"
+// @Failure 500 {string} string "Server error"
+// @Router /zlib/deleteuser/{email} [delete]
 func DeleteUser(w http.ResponseWriter, r *http.Request) {
 	email := chi.URLParam(r, "email")
 	// fmt.Print(email)
@@ -188,6 +229,14 @@ func DeleteUser(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Delete successful\n"))
 }
 
+// DeleteCategory deletes a category by name
+// @Summary Delete a category
+// @Tags ZLibrary
+// @Param category path string true "Category name"
+// @Success 200 {string} string "Delete successful"
+// @Failure 404 {string} string "Category not found"
+// @Failure 500 {string} string "Server error"
+// @Router /zlib/deletecategory/{category} [delete]
 func DeleteCategory(w http.ResponseWriter, r *http.Request) {
 	category := chi.URLParam(r, "category")
 	// fmt.Print(category)

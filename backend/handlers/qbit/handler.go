@@ -10,28 +10,6 @@ import (
 	"encoding/json"
 )
 
-type Category struct {
-	Name     string `json:"name"`
-	SavePath string `json:"savePath"`
-}
-
-type TorrentItem struct {
-	Magnet   string `json:"magnet"`
-	Category string `json:"category,omitempty"`
-}
-
-type TorrentRequest struct {
-	Request []TorrentItem `json:"request"`
-}
-type TorrentResult struct {
-	Magnet string `json:"magnet"`
-	Error  string `json:"error,omitempty"`
-}
-
-type TorrentResponse struct {
-	Results []TorrentResult `json:"response"`
-}
-
 // newClient creates a qbittorrent client connected to qbittorrent.example.com
 func newClient() (*qb.Client, error) {
 	client := qb.NewClient(qb.Config{
@@ -77,6 +55,16 @@ func getCategories(client *qb.Client) ([]Category, error) {
 	return categoryList, nil
 }
 
+// AddTorrent handles adding torrents to qBittorrent
+// @Summary Add torrents to qBittorrent
+// @Tags qBittorrent
+// @Accept json
+// @Produce json
+// @Param request body TorrentRequest true "Torrent request"
+// @Success 200 {object} TorrentResponse
+// @Failure 400 {string} string "Invalid request"
+// @Failure 500 {string} string "Server error"
+// @Router /qbit/addtorrents [post]
 func AddTorrent(w http.ResponseWriter, r *http.Request) {
 	var request TorrentRequest
 	err := json.NewDecoder(r.Body).Decode(&request)

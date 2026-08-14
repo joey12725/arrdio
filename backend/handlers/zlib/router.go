@@ -1,8 +1,6 @@
 package zlib
 
 import (
-	"fmt"
-
 	"github.com/go-chi/chi/v5"
 
 	"net/http"
@@ -29,13 +27,7 @@ func Router() chi.Router {
 
 	r.Post("/downloadbook", DownloadBook)
 
-	r.Get("/refreshusers", func(w http.ResponseWriter, r *http.Request) {
-		err := RefreshZLibUser()
-
-		if err != nil {
-			fmt.Printf("%v\n", err)
-		}
-	})
+	r.Get("/refreshusers", RefreshZLibUsers)
 
 	r.Delete("/deleteuser/{email}", DeleteUser)
 

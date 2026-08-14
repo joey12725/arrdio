@@ -40,3 +40,22 @@
   align-items: center;
   justify-content: center;
 }
+
+
+
+@keyframes neonPulse {
+  0%, 100% {
+    text-shadow:
+      0 0 2px #f00cb3,   /* tight bright core */
+      0 0 6px rgba(240, 12, 179, 0.6); /* subtle outer glow */
+  }
+  50% {
+    text-shadow:
+      0 0 3px #ff33cc,   /* slightly brighter pulse */
+      0 0 8px rgba(240, 12, 179, 0.7); /* soft expansion */
+  }
+}
+
+.neon-text {
+  animation: neonPulse 2s infinite alternate;
+}

@@ -13,10 +13,7 @@ func Router() chi.Router {
 		w.Write([]byte("Accessing Prowlarr Endpoint\n"))
 	})
 
-	// /audiobookshelf/getbook
-
-	// /audiobookshelf/getlistbook
-	// r.Get("/getlistbook", GetListBook)
+	r.Post("/searchbooks", SearchBook)
 
 	// add more routes or middleware (r.Use) as you wish
 	return r

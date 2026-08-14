@@ -7,7 +7,7 @@
       height="75"
       class="w-auto, pl-2"
     />
-    <span class=" ml-4 text-[48px] text-tertiary font-display">
+    <span class="ml-4 text-[48px] font-display text-tertiary neon-text">
       Arrdio
     </span>
     </aside>

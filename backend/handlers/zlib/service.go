@@ -2,9 +2,10 @@ package zlib
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 
-	db "github.com/ashkaty/arrdio-api/services"
+	db "github.com/ashkaty/arrdio-api/services/db"
 )
 
 func queryZLibUser(query []string) ([]ZLibUser, error) {
@@ -106,4 +107,23 @@ func RefreshZLibUser() error {
 		return fmt.Errorf("error inserting zlibrary user: %v", insertError)
 	}
 	return nil
+}
+
+// RefreshZLibUsers handles HTTP request to refresh ZLibrary user credentials
+// @Summary Refresh ZLibrary user credentials
+// @Tags ZLibrary
+// @Produce json
+// @Success 200 {string} string "Users refreshed"
+// @Failure 500 {string} string "Server error"
+// @Router /zlib/refreshusers [get]
+func RefreshZLibUsers(w http.ResponseWriter, r *http.Request) {
+	err := RefreshZLibUser()
+
+	if err != nil {
+		http.Error(w, "error refreshing users: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Users refreshed successfully\n"))
 }

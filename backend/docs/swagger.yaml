@@ -1,0 +1,574 @@
+basePath: /
+definitions:
+  models.AudioBook:
+    properties:
+      author:
+        type: string
+      href_link:
+        type: string
+      image_link:
+        type: string
+      magnet_link:
+        type: string
+      source:
+        type: string
+      title:
+        type: string
+    type: object
+  models.AudiobookResult:
+    properties:
+      result:
+        items:
+          $ref: '#/definitions/models.AudiobookResultItem'
+        type: array
+    type: object
+  models.AudiobookResultItem:
+    properties:
+      book:
+        $ref: '#/definitions/models.AudioBook'
+      error:
+        type: string
+      title:
+        type: string
+    type: object
+  models.BookRequest:
+    properties:
+      author:
+        type: string
+      title:
+        type: string
+    type: object
+  models.EBook:
+    properties:
+      author:
+        type: string
+      cover:
+        type: string
+      extension:
+        type: string
+      hash:
+        type: string
+      id:
+        type: integer
+      source:
+        type: string
+      title:
+        type: string
+      year:
+        type: integer
+    type: object
+  models.EbookResult:
+    properties:
+      result:
+        items:
+          $ref: '#/definitions/models.EbookResultItem'
+        type: array
+      warning:
+        type: string
+    type: object
+  models.EbookResultItem:
+    properties:
+      book:
+        $ref: '#/definitions/models.EBook'
+      error:
+        type: string
+      title:
+        type: string
+    type: object
+  models.Request:
+    properties:
+      request:
+        items:
+          $ref: '#/definitions/models.RequestItem'
+        type: array
+    type: object
+  models.RequestItem:
+    properties:
+      book:
+        $ref: '#/definitions/models.BookRequest'
+      category:
+        type: string
+    type: object
+  openlibrary.Book:
+    properties:
+      author:
+        type: string
+      title:
+        type: string
+    type: object
+  openlibrary.BookResult:
+    properties:
+      author:
+        type: string
+      cover_id:
+        type: integer
+      cover_url:
+        type: string
+      error:
+        type: string
+      isbn:
+        type: string
+      title:
+        type: string
+      year:
+        type: integer
+    type: object
+  openlibrary.SearchItem:
+    properties:
+      book:
+        $ref: '#/definitions/openlibrary.Book'
+    type: object
+  openlibrary.SearchRequest:
+    properties:
+      request:
+        items:
+          $ref: '#/definitions/openlibrary.SearchItem'
+        type: array
+    type: object
+  openlibrary.SearchResponse:
+    properties:
+      results:
+        items:
+          $ref: '#/definitions/openlibrary.BookResult'
+        type: array
+    type: object
+  qbit.TorrentItem:
+    properties:
+      category:
+        type: string
+      magnet:
+        type: string
+    type: object
+  qbit.TorrentRequest:
+    properties:
+      request:
+        items:
+          $ref: '#/definitions/qbit.TorrentItem'
+        type: array
+    type: object
+  qbit.TorrentResponse:
+    properties:
+      response:
+        items:
+          $ref: '#/definitions/qbit.TorrentResult'
+        type: array
+    type: object
+  qbit.TorrentResult:
+    properties:
+      error:
+        type: string
+      magnet:
+        type: string
+    type: object
+  zlib.CategoryRequest:
+    properties:
+      category:
+        type: string
+      savepath:
+        type: string
+    type: object
+  zlib.CategoryResponse:
+    properties:
+      category:
+        type: string
+      id:
+        type: integer
+      savepath:
+        type: string
+    type: object
+  zlib.DownloadItem:
+    properties:
+      book:
+        $ref: '#/definitions/models.EBook'
+      category:
+        type: string
+    type: object
+  zlib.DownloadRequest:
+    properties:
+      request:
+        items:
+          $ref: '#/definitions/zlib.DownloadItem'
+        type: array
+    type: object
+  zlib.DownloadResponse:
+    properties:
+      response:
+        items:
+          $ref: '#/definitions/zlib.DownloadResult'
+        type: array
+      warning:
+        type: string
+    type: object
+  zlib.DownloadResult:
+    properties:
+      book:
+        $ref: '#/definitions/models.EBook'
+      error:
+        type: string
+    type: object
+  zlib.ZLibUser:
+    properties:
+      download_count:
+        type: integer
+      email:
+        type: string
+      id:
+        type: integer
+      password:
+        type: string
+      user_id:
+        type: string
+      user_key:
+        type: string
+    type: object
+  zlib.ZLibUserRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+    type: object
+host: localhost:2130
+info:
+  contact: {}
+  description: API for searching and downloading books and audiobooks from various
+    sources
+  title: Arrdio API
+  version: "1.0"
+paths:
+  /abb/searchbooks:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Search request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.Request'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.AudiobookResult'
+        "400":
+          description: Invalid request
+          schema:
+            type: string
+        "500":
+          description: Server error
+          schema:
+            type: string
+      summary: Search audiobooks on Audiobookbay
+      tags:
+      - ABB
+  /openlibrary/search:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Search request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/openlibrary.SearchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/openlibrary.SearchResponse'
+        "400":
+          description: Invalid request
+          schema:
+            type: string
+        "500":
+          description: Server error
+          schema:
+            type: string
+      summary: Search books on Open Library
+      tags:
+      - OpenLibrary
+  /prowlarr/searchbooks:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Search request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.Request'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.AudiobookResult'
+        "400":
+          description: Invalid request
+          schema:
+            type: string
+        "500":
+          description: Server error
+          schema:
+            type: string
+      summary: Search audiobooks via Prowlarr
+      tags:
+      - Prowlarr
+  /qbit/addtorrents:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Torrent request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/qbit.TorrentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/qbit.TorrentResponse'
+        "400":
+          description: Invalid request
+          schema:
+            type: string
+        "500":
+          description: Server error
+          schema:
+            type: string
+      summary: Add torrents to qBittorrent
+      tags:
+      - qBittorrent
+  /zlib/deletecategory/{category}:
+    delete:
+      parameters:
+      - description: Category name
+        in: path
+        name: category
+        required: true
+        type: string
+      responses:
+        "200":
+          description: Delete successful
+          schema:
+            type: string
+        "404":
+          description: Category not found
+          schema:
+            type: string
+        "500":
+          description: Server error
+          schema:
+            type: string
+      summary: Delete a category
+      tags:
+      - ZLibrary
+  /zlib/deleteuser/{email}:
+    delete:
+      parameters:
+      - description: User email
+        in: path
+        name: email
+        required: true
+        type: string
+      responses:
+        "200":
+          description: Delete successful
+          schema:
+            type: string
+        "404":
+          description: User not found
+          schema:
+            type: string
+        "500":
+          description: Server error
+          schema:
+            type: string
+      summary: Delete a ZLibrary user
+      tags:
+      - ZLibrary
+  /zlib/downloadbook:
+    post:
+      consumes:
+      - application/json
+      deprecated: true
+      parameters:
+      - description: Download request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/zlib.DownloadRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/zlib.DownloadResponse'
+        "206":
+          description: Partial content (quota exceeded)
+          schema:
+            $ref: '#/definitions/zlib.DownloadResponse'
+        "400":
+          description: Invalid request
+          schema:
+            type: string
+        "500":
+          description: Server error
+          schema:
+            type: string
+      summary: Download ebooks from ZLibrary
+      tags:
+      - ZLibrary
+  /zlib/getcategory:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/zlib.CategoryResponse'
+            type: array
+        "500":
+          description: Server error
+          schema:
+            type: string
+      summary: Get all categories
+      tags:
+      - ZLibrary
+  /zlib/getzlibuser:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/zlib.ZLibUser'
+            type: array
+        "500":
+          description: Server error
+          schema:
+            type: string
+      summary: Get all ZLibrary users
+      tags:
+      - ZLibrary
+  /zlib/putcategory:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Category request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/zlib.CategoryRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/zlib.CategoryResponse'
+        "400":
+          description: Invalid request or duplicate entry
+          schema:
+            type: string
+      summary: Add a category
+      tags:
+      - ZLibrary
+  /zlib/putzlibuser:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: User request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/zlib.ZLibUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/zlib.ZLibUser'
+        "400":
+          description: Invalid request or duplicate entry
+          schema:
+            type: string
+      summary: Add a ZLibrary user
+      tags:
+      - ZLibrary
+  /zlib/refreshusers:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Users refreshed
+          schema:
+            type: string
+        "500":
+          description: Server error
+          schema:
+            type: string
+      summary: Refresh ZLibrary user credentials
+      tags:
+      - ZLibrary
+  /zlib/searchbook:
+    post:
+      consumes:
+      - application/json
+      deprecated: true
+      parameters:
+      - description: Search request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.Request'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.EbookResult'
+        "400":
+          description: Invalid request
+          schema:
+            type: string
+        "424":
+          description: No Zlibrary Users Defined
+          schema:
+            type: string
+        "500":
+          description: Server error
+          schema:
+            type: string
+      summary: Search ebooks on ZLibrary
+      tags:
+      - ZLibrary
+      - Deprecieate
+swagger: "2.0"

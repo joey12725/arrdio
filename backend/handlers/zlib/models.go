@@ -1,7 +1,9 @@
 package zlib
 
+import "github.com/ashkaty/arrdio-api/services/models"
+
 type DownloadItem struct {
-	BookItem EBook `json:"book"`
+	BookItem models.EBook `json:"book"`
 	Category string
 }
 
@@ -10,8 +12,8 @@ type DownloadRequest struct {
 }
 
 type DownloadResult struct {
-	BookItem EBook  `json:"book,omitempty"`
-	Error    string `json:"error,omitempty"`
+	BookItem models.EBook `json:"book,omitempty"`
+	Error    string       `json:"error,omitempty"`
 }
 
 type DownloadResponse struct {
@@ -19,28 +21,6 @@ type DownloadResponse struct {
 	Response []DownloadResult `json:"response"`
 }
 
-type Book struct {
-	Title  string `json:"title"`
-	Author string `json:"author,omitempty"`
-}
-
-type SearchItem struct {
-	BookItem Book `json:"book"`
-	Category string
-}
-type SearchRequest struct {
-	Request []SearchItem `json:"request"`
-}
-
-type SearchResult struct {
-	Books *EBook `json:"book"`
-	Error error  `json:"error,omitempty"`
-	Title string `json:"title,omitempty"`
-}
-
-type SearchResponse struct {
-	Response []SearchResult `json:"response"`
-}
 type CategoryRequest struct {
 	Category string `json:"category"`
 	SavePath string `json:"savepath"`

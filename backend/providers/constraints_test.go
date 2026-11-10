@@ -31,6 +31,8 @@ func TestKavitaChecksAllContainersBeforeReportingMismatch(t *testing.T) {
 			w.Write([]byte(`{"language":"en"}`))
 		case "/api/Series/volumes":
 			w.Write([]byte(`[{"name":"1","chapters":[{"files":[{"filePath":"/books/A/book.pdf"},{"filePath":"/books/A/book.epub"}]}]}]`))
+		case "/api/Search/search":
+			w.Write([]byte(`{"series":[],"chapters":[]}`))
 		default:
 			w.WriteHeader(404)
 		}

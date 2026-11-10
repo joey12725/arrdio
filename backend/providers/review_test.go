@@ -151,3 +151,39 @@ func TestAudioImportPreservesMultiDiscAndIgnoresNFO(t *testing.T) {
 		}
 	}
 }
+
+// Live Kavita filed The Bride of Lammermoor under the series "The Waverley
+// Novels"; only its chapter title names the book.
+func TestKavitaFindsBookInsideDifferentlyNamedSeries(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/Series/v2":
+			w.Header().Set("Pagination", `{"totalPages":1}`)
+			w.Write([]byte(`[{"id":6072,"name":"The Waverley Novels"}]`))
+		case "/api/Search/search":
+			w.Write([]byte(`{"chapters":[{"titleName":"The Bride of Lammermoor","volumeId":16323,"files":[{"filePath":"/books/Fiction/The Waverley Novels/The Bride of Lammermoor (Walter Scott).epub"}],"writers":[{"name":"Walter Scott"}]}]}`))
+		case "/api/Volume":
+			w.Write([]byte(`{"id":16323,"seriesId":6072}`))
+		case "/api/Series/6072":
+			w.Write([]byte(`{"id":6072,"libraryId":1}`))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+	library := &Libraries{KavitaURL: server.URL, KavitaToken: "fixture", Routes: []Route{{Category: "fiction", Format: "ebook", Service: "kavita", LibraryID: "1", Path: t.TempDir()}}}
+	p, e := library.Presence(context.Background(), jobs.Input{Title: "The Bride of Lammermoor", Author: "Walter Scott"}, "ebook")
+	if e != nil || p[0].State != "available" || p[0].ItemID != "6072" {
+		t.Fatal(p, e)
+	}
+	p, e = library.Presence(context.Background(), jobs.Input{Title: "The Bride of Lammermoor", Author: "Someone Else"}, "ebook")
+	if e != nil || p[0].State != "absent" {
+		t.Fatal("another author's book matched", p, e)
+	}
+	library.Routes[0].LibraryID = "3"
+	p, e = library.Presence(context.Background(), jobs.Input{Title: "The Bride of Lammermoor", Author: "Walter Scott"}, "ebook")
+	if e != nil || p[0].State != "absent" {
+		t.Fatal("a book in another library matched", p, e)
+	}
+}

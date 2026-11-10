@@ -167,7 +167,7 @@ func (l *Libraries) index(ctx context.Context, route Route) ([]libraryItem, erro
 				Format       int    `json:"format"`
 			}
 			body, _ := json.Marshal(map[string]any{"statements": []any{map[string]any{"comparison": 0, "field": 19, "value": route.LibraryID}}, "combination": 1, "sortOptions": map[string]any{"sortField": 1, "isAscending": true}, "limitTo": 0})
-			totalPages, e := jsonPage(ctx, fmt.Sprintf("%s/api/Series/v2?PageNumber=%d&PageSize=200", l.KavitaURL, page), bytes.NewReader(body), map[string]string{"Authorization": "Bearer " + l.KavitaToken, "Content-Type": "application/json"}, &result)
+			totalPages, e := jsonPage(ctx, fmt.Sprintf("%s/api/Series/v2?PageNumber=%d&PageSize=5000", l.KavitaURL, page), bytes.NewReader(body), map[string]string{"Authorization": "Bearer " + l.KavitaToken, "Content-Type": "application/json"}, &result)
 			if e != nil {
 				var status HTTPStatusError
 				if errors.As(e, &status) && (status.Code == 401 || status.Code == 403) {
@@ -246,6 +246,16 @@ func (l *Libraries) presence(ctx context.Context, in jobs.Input, format, categor
 					break
 				}
 			}
+			if p.State == "absent" && route.Service == "kavita" && format == "ebook" {
+				if item, e := l.kavitaBookSearch(ctx, route, in); e != nil {
+					p.State = "unknown"
+					last = e
+				} else if item != nil {
+					p.State = "available"
+					p.ItemID = item.ID
+					p.URL = item.URL
+				}
+			}
 		}
 		out = append(out, p)
 	}
@@ -258,6 +268,79 @@ func (l *Libraries) presence(ctx context.Context, in jobs.Input, format, categor
 		}
 	}
 	return out, last
+}
+
+// kavitaBookSearch finds a book Kavita files under another series name
+// ("The Bride of Lammermoor" inside "The Waverley Novels"), which the series
+// index cannot see, by its chapter title, writers and file type.
+func (l *Libraries) kavitaBookSearch(ctx context.Context, route Route, in jobs.Input) (*libraryItem, error) {
+	l.mu.Lock()
+	headers := map[string]string{"Authorization": "Bearer " + l.KavitaToken}
+	l.mu.Unlock()
+	var found struct {
+		Chapters []struct {
+			TitleName string `json:"titleName"`
+			VolumeID  int    `json:"volumeId"`
+			Files     []struct {
+				Path string `json:"filePath"`
+			} `json:"files"`
+			Writers []struct {
+				Name string `json:"name"`
+			} `json:"writers"`
+		} `json:"chapters"`
+	}
+	query := strings.TrimSpace(strings.SplitN(in.Title, ":", 2)[0])
+	if e := l.kavitaRead(ctx, l.KavitaURL+"/api/Search/search?queryString="+escape(query), headers, &found); e != nil {
+		return nil, e
+	}
+	for _, chapter := range found.Chapters {
+		if overlap(in.Title, chapter.TitleName) < 0.95 || len(chapter.Files) == 0 {
+			continue
+		}
+		if in.Author != "" {
+			match := len(chapter.Writers) == 0
+			for _, w := range chapter.Writers {
+				if authorOverlap(in.Author, w.Name) >= 0.7 {
+					match = true
+				}
+			}
+			if !match {
+				continue
+			}
+		}
+		ebook := false
+		for _, f := range chapter.Files {
+			ext := strings.ToLower(filepath.Ext(f.Path))
+			evidence := jobs.Candidate{Extension: strings.TrimPrefix(ext, ".")}
+			if (ext == ".epub" || ext == ".pdf" || ext == ".azw3" || ext == ".mobi") && in.RequirementState(evidence, "ebook") == "match" {
+				ebook = true
+			}
+		}
+		if !ebook {
+			continue
+		}
+		var volume struct {
+			SeriesID int `json:"seriesId"`
+		}
+		if e := l.kavitaRead(ctx, fmt.Sprintf("%s/api/Volume?volumeId=%d", l.KavitaURL, chapter.VolumeID), headers, &volume); e != nil {
+			return nil, e
+		}
+		var series struct {
+			LibraryID int `json:"libraryId"`
+		}
+		if e := l.kavitaRead(ctx, fmt.Sprintf("%s/api/Series/%d", l.KavitaURL, volume.SeriesID), headers, &series); e != nil {
+			return nil, e
+		}
+		if fmt.Sprint(series.LibraryID) != route.LibraryID {
+			continue
+		}
+		public := l.KavitaPublicURL
+		if public == "" {
+			public = l.KavitaURL
+		}
+		return &libraryItem{Title: chapter.TitleName, ID: fmt.Sprint(volume.SeriesID), URL: fmt.Sprintf("%s/library/%s/series/%d", public, route.LibraryID, volume.SeriesID), Format: "ebook"}, nil
+	}
+	return nil, nil
 }
 func (l *Libraries) kavitaRead(ctx context.Context, url string, headers map[string]string, out any) error {
 	e := jsonCall(ctx, Client, "GET", url, nil, headers, out)

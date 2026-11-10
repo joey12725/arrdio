@@ -1,201 +1,71 @@
-# Arrdio Docker
+# ARRDIO — household book acquisition
 
-Arrdio is a two-service app for searching and downloading audiobooks and ebooks from one interface.
+Request books once; ARRDIO finds the ebook and audiobook, imports them into your
+Kavita and Audiobookshelf libraries, and keeps track of every request until it is
+there. The Go backend and Nuxt/Vue frontend are a durable rewrite of the original
+browser-driven app: batches live in SQLite instead of the browser, and the old
+unauthenticated download routes are gone.
 
-- The `frontend/` app is a Nuxt 3 UI that lets you queue titles, search for audiobook and ebook matches, manage download categories, and manage Z-Library users.
-- The `backend/` app is a Go API that talks to external services including AudiobookBay, Z-Library, qBittorrent, Open Library, and Prowlarr.
-- A sample Docker Compose file is included at [compose-example.yaml](compose-example.yaml).
+Deploy with [`compose-example.yaml`](compose-example.yaml) and the cutover steps in
+[configuration and recovery](docs/OPERATIONS.md). Images are published only by a
+manual workflow run with an explicit tag; merging does not deploy.
 
-## What It Does
+## Product behavior
 
-From the main page, you can:
+- One book with independent ebook/audio children; ordinary books default to both.
+- Durable SQLite queue, LIFO execution, persistent bumps, idempotent bulk intake,
+  bounded workers, transfer intents and recovery.
+- Debounced catalog suggestions, immediate free-text intake, photo ingestion,
+  title/author sorting, server-side filtering, per-format controls and correction.
+- Shared encrypted ebook accounts, profile-derived allowance, rollover and a single
+  aggregate quota display. Ordinary users can add accounts, never remove them.
+- Provider boundaries for modern Z-Library EAPI, Prowlarr/qBittorrent, ABB and slskd.
+  Manga selection uses discovered literature categories and requested volumes.
+- API-backed library presence, operator-owned destinations, verified atomic copies,
+  preserved source payloads and recoverable M4B normalization.
+- Authentik browser sign-in, revocable persistent agent grants, REST, MCP and a
+  downloadable Python CLI/skill bundle over the same jobs.
 
-- add one or more titles
-- search for audiobook matches
-- search for ebook matches
-- send audiobook magnet links to qBittorrent
-- download ebooks directly through Z-Library
-- assign each item to a download category before downloading
+## Develop locally
 
-The app also includes:
+Requirements: Go 1.27.3 with a C compiler for SQLite, Node 22.21+ (supported LTS),
+npm 11.6.2, and FFmpeg/ffprobe for media checks and conversion.
 
-- a category management page for mapping category names to save paths
-- a Z-Library user management page with per-account download quota tracking
-- optional Authentik-based login on the frontend
-
-## Project Layout
-
-```text
-.
-|-- backend/                 Go API
-|   |-- main.go              mounts API routes on port 2130
-|   |-- handlers/
-|   |   |-- adb/             AudiobookBay search via Playwright
-|   |   |-- prowlarr/        audiobook search through Prowlarr
-|   |   |-- qbit/            add torrents to qBittorrent
-|   |   |-- openlibrary/     Open Library search
-|   |   `-- zlib/            Z-Library search, user storage, downloads
-|   `-- services/database.go SQLite schema bootstrap
-|-- frontend/                Nuxt 3 application
-|   |-- pages/
-|   |   |-- index.vue        main search/download workflow
-|   |   |-- category.vue     download category management
-|   |   |-- zlibusers.vue    Z-Library user management
-|   |   `-- auth/login.vue   Authentik login page
-|   `-- server/api/          frontend server routes that proxy to the Go API
-`-- .github/workflows/       Docker image build/push workflow
-```
-
-## Stack
-
-- Frontend: Nuxt 3, Vue 3, Nuxt UI, Tailwind
-- Backend: Go 1.24, Chi router, SQLite
-- Browser automation: Playwright
-- Containerization: Docker multi-stage builds for both services
-- CI: GitHub Actions builds and pushes Docker images on `master` and `dev`
-
-## Services And Ports
-
-- Frontend: `http://localhost:3000`
-- Backend API: `http://localhost:2130`
-
-The sample compose file connects the frontend to the backend with:
-
-```yaml
-NUXT_PUBLIC_API_BASE: http://api:2130
-```
-
-## Docker Setup
-
-1. Copy [compose-example.yaml](compose-example.yaml) to your own compose file such as `compose.yaml`.
-2. Replace all blank OIDC values with real values if you want login enabled.
-3. Update the host ebook output mount:
-
-```yaml
-- /c/Users/your-user/Desktop/output:/ebooks:rw
-```
-
-4. Make sure any download directories used by your categories exist and are writable inside the container.
-5. Start the stack:
-
-```bash
-docker compose up --build
-```
-
-## Local Development
-
-### Backend
-
-The backend uses SQLite and creates tables automatically on startup.
-
-```bash
+```sh
 cd backend
-go run .
+go test -race ./...
+go vet ./...
 ```
 
-Notes:
-
-- the API listens on port `2130`
-- the database file is currently `backend/arrdio.db`
-- Playwright browsers are installed during startup in `main.go`
-
-### Frontend
-
-```bash
+```sh
 cd frontend
-yarn install
-yarn dev
+npm ci
+npm run typecheck
+npm run build
 ```
 
-The frontend expects a backend base URL from either:
+See [configuration and recovery](docs/OPERATIONS.md) before starting the service.
+The API refuses to start without a durable database location, persistent encryption
+key, gateway credential and public endpoint identity. Provider credentials stay
+backend-only. Authentik is enforced in development as well as production.
 
-- `NUXT_PUBLIC_API_BASE`
-- `GOLANG_API_URL`
+`compose.local.yaml` builds an isolated stack with workers paused, a local-only
+web port and its own data volume. It mounts no libraries and changes no
+production route. Supply its required secrets through your environment/secret
+manager, then validate with `docker compose -f compose.local.yaml config --quiet`.
 
-Example local `.env` values:
+## Layout
 
-```env
-NUXT_PUBLIC_API_BASE=http://localhost:2130
+| Path | Purpose |
+| --- | --- |
+| `backend/jobs/` | Durable store, migrations, scheduling, auth, REST/MCP, integration bundle |
+| `backend/providers/` | Provider adapters, matching, file validation, library APIs and conversion |
+| `backend/app/` | Operator configuration and service lifecycle |
+| `frontend/pages/` | Unified queue, settings, Authentik login |
+| `frontend/server/` | Authenticated browser gateway and separately authenticated agent transport |
+| `docs/` | Configuration, deployment and recovery |
 
-# Optional Authentik / OIDC config
-NUXT_OAUTH_AUTHENTIK_CLIENT_ID=your-client-id
-NUXT_OAUTH_AUTHENTIK_CLIENT_SECRET=your-client-secret
-NUXT_OAUTH_AUTHENTIK_DOMAIN=https://your-authentik.example.com
-NUXT_OAUTH_AUTHENTIK_REDIRECT_URL=http://localhost:3000/auth/authentik
-```
-
-## Main API Routes
-
-Mounted by the Go server:
-
-- `/abb` for AudiobookBay search
-- `/qbit` for qBittorrent torrent submission
-- `/zlib` for Z-Library user management, search, downloads, and categories
-- `/openlibrary` for Open Library search
-- `/prowlarr` for Prowlarr audiobook search
-
-Some notable endpoints:
-
-- `POST /abb/searchbooks`
-- `POST /prowlarr/searchbooks`
-- `POST /qbit/addtorrents`
-- `POST /zlib/searchbook`
-- `POST /zlib/downloadbook`
-- `PUT /zlib/putcategory`
-- `GET /zlib/getcategory`
-- `PUT /zlib/putzlibuser`
-- `GET /zlib/getzlibuser`
-
-## Persistence
-
-The backend initializes these SQLite tables on startup:
-
-- `categories`
-- `zlibuser`
-- `downloadclient`
-
-Default categories are inserted automatically:
-
-- `audiobooks -> /audiobooks`
-- `ebooks -> /ebooks`
-
-## Authentication
-
-The frontend includes an Authentik login route at `/auth/login` and an OAuth callback handler under `frontend/server/api/auth/authentik.get.ts`.
-
-If you do not want authentication yet, you can still run the app locally by setting the API base URL and leaving auth integration out of your flow. The current repo does not include a full top-level auth guard, so authentication is best treated as optional/in-progress.
-
-## CI/CD
-
-GitHub Actions builds and pushes Docker images from `.github/workflows/docker-image.yml`.
-
-- pushes to `dev` publish `dev`
-- pushes to `master` or `main` publish `latest`
-
-Current image names:
-
-- `ashwinrameshdocker/arrdio-frontend`
-- `ashwinrameshdocker/arrdio-api`
-
-## Current Caveats
-
-These are worth knowing before deployment:
-
-- The backend currently contains hardcoded credentials and hostnames for AudiobookBay, qBittorrent, and Prowlarr in source code. Those should be moved to environment variables before any real deployment.
-- `frontend/.env` in the repo contains real-looking secrets. Treat those as compromised and rotate them if they are active anywhere.
-- The backend Dockerfile exposes port `8080`, but the Go server actually listens on `2130`.
-- The backend opens SQLite with `arrdio.db`, while the compose file mounts `/app/data`. As written, the DB path is not aligned with that mounted volume.
-- The repository contains generated frontend artifacts like `.nuxt/` and installed dependencies in `node_modules/`, which usually should not be committed unless intentionally needed.
-- The default compose file only shows an `/ebooks` bind mount. If you want audiobook files saved to a mounted host path too, you will likely need to add that mapping and update categories accordingly.
-
-## Suggested Next Cleanup
-
-- move third-party credentials to environment variables
-- align the backend database path with the Docker volume
-- align the backend Dockerfile exposed port with the actual server port
-- add a real root-level compose file and a checked-in `.env.example`
-- remove committed generated artifacts if they are not intentional
-
-## License
-
-No license file is currently present in this repository.
+The newer EAPI contract was adapted from an earlier `arrdio-acquisition` working tree
+at documented HEAD `0acf315c5fb6a1d9d1d8b3edf51cad301c4259d8`, including its newer
+domain/quota/validation changes. Its SSH gateway, confirmation loop, caches,
+credentials and downloaded books were not imported into this repository.

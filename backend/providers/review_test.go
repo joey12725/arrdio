@@ -1,0 +1,133 @@
+package providers
+
+import (
+	"context"
+	"encoding/json"
+	"github.com/ashkaty/arrdio-api/jobs"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+)
+
+func TestRequestedVolumeCannotMatchDifferentOrUnknownCoverage(t *testing.T) {
+	in := jobs.Input{Title: "Example Manga", Kind: "manga", Volume: "1"}
+	got := Rank(in, "manga", []jobs.Candidate{{ID: "wrong", Title: "Example Manga v99", Format: "manga", Volume: volumeCoverage("Example Manga v99")}, {ID: "unknown-pack", Title: "Example Manga complete", Format: "manga"}, {ID: "matching-pack", Title: "Example Manga v01-12", Format: "manga", Volume: volumeCoverage("Example Manga v01-12")}})
+	if len(got) != 1 || got[0].ID != "matching-pack" {
+		t.Fatal(got)
+	}
+	if coversVolume(volumeCoverage("Series v10/file.cbz"), "1") {
+		t.Fatal("substring volume collision")
+	}
+	if fileMatchesVolume("Series v01-16/Series v02.cbz", "1") || fileMatchesVolume("Series v01-16.cbz", "1") || !fileMatchesVolume("Series v01-16/Series v01.cbz", "1") {
+		t.Fatal("pack expanded beyond requested volume")
+	}
+}
+func TestKavitaVolumePresenceAndSessionRenewal(t *testing.T) {
+	auths := 0
+	reject := true
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/Plugin/authenticate":
+			auths++
+			json.NewEncoder(w).Encode(map[string]string{"token": "renewed"})
+		case "/api/Series/v2":
+			w.Header().Set("Pagination", `{"totalPages":1}`)
+			if reject {
+				reject = false
+				w.WriteHeader(401)
+				return
+			}
+			w.Write([]byte(`[{"id":42,"name":"Example Manga","format":2}]`))
+		case "/api/Series/metadata":
+			w.Write([]byte(`{"writers":[{"name":"Writer"}]}`))
+		case "/api/Series/volumes":
+			w.Write([]byte(`[{"name":"Volume 1","minNumber":1,"maxNumber":1,"chapters":[{"number":"1","files":[{"filePath":"/books/Example Manga v01.cbz"}]}]}]`))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+	library := &Libraries{KavitaURL: server.URL, KavitaToken: "expired", KavitaKey: "fixture", Routes: []Route{{Category: "manga", Format: "manga", Service: "kavita", LibraryID: "2", Path: t.TempDir()}}}
+	in := jobs.Input{Title: "Example Manga", Author: "Writer", Kind: "manga", Volume: "1"}
+	if _, e := library.Presence(context.Background(), in, "manga"); e == nil {
+		t.Fatal("expired authentication treated as absent")
+	}
+	p, e := library.Presence(context.Background(), in, "manga")
+	if e != nil || p[0].State != "available" || auths != 1 {
+		t.Fatal(p, e, auths)
+	}
+	in.Volume = "2"
+	p, e = library.Presence(context.Background(), in, "manga")
+	if e != nil || p[0].State != "absent" {
+		t.Fatal("missing volume blocked by existing series", p, e)
+	}
+}
+func TestSoulseekRequiresContiguousCompleteInventory(t *testing.T) {
+	if completeSet([]peerFile{{Filename: "01 chapter.mp3"}, {Filename: "03 chapter.mp3"}}) {
+		t.Fatal("missing chapter accepted")
+	}
+	if completeSet([]peerFile{{Filename: "book.mp3"}}) {
+		t.Fatal("single search MP3 accepted")
+	}
+	if !completeSet([]peerFile{{Filename: "01 chapter.mp3"}, {Filename: "02 chapter.mp3"}}) {
+		t.Fatal("complete numbered set rejected")
+	}
+}
+func TestABBExtractsHashAcrossMarkup(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			w.Write([]byte(`<a href="/abss/book">The Jungle</a>`))
+			return
+		}
+		w.Write([]byte(`<title>The Jungle - Upton Sinclair</title><table><tr><td>Info Hash:</td><td>0123456789abcdef0123456789abcdef01234567</td></tr></table>`))
+	}))
+	defer server.Close()
+	source := &ABB{URL: server.URL}
+	results, e := source.Search(context.Background(), jobs.Input{Title: "The Jungle", Author: "Upton Sinclair"}, "audio")
+	if e != nil || len(results) != 1 || results[0].ID != "0123456789abcdef0123456789abcdef01234567" {
+		t.Fatal(results, e)
+	}
+}
+func TestAudioImportPreservesMultiDiscAndIgnoresNFO(t *testing.T) {
+	if _, e := exec.LookPath("ffmpeg"); e != nil {
+		t.Skip("ffmpeg unavailable")
+	}
+	root := t.TempDir()
+	files := []string{}
+	for _, disc := range []string{"CD1", "CD2"} {
+		dir := filepath.Join(root, disc)
+		os.Mkdir(dir, 0700)
+		path := filepath.Join(dir, "01.mp3")
+		if e := exec.Command("ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=duration=0.2", "-c:a", "libmp3lame", path).Run(); e != nil {
+			t.Fatal(e)
+		}
+		files = append(files, path)
+	}
+	nfo := filepath.Join(root, "release.nfo")
+	os.WriteFile(nfo, []byte("metadata"), 0600)
+	files = append(files, nfo)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"total":1,"results":[{"id":"book","media":{"metadata":{"title":"A","authorName":"Writer"},"numAudioFiles":2}}]}`))
+	}))
+	defer server.Close()
+	destination := t.TempDir()
+	library := &Libraries{ABSURL: server.URL, ABSToken: "fixture", Routes: []Route{{Category: "audio", Format: "audio", Service: "audiobookshelf", LibraryID: "1", Path: destination}}}
+	presence, e := library.Import(context.Background(), jobs.Input{Title: "A", Author: "Writer"}, "audio", files, "")
+	if e != nil || presence[0].State != "available" {
+		t.Fatal(presence, e)
+	}
+	matches, _ := filepath.Glob(filepath.Join(destination, "Writer", "A", "*.mp3"))
+	if len(matches) != 2 {
+		t.Fatal(matches)
+	}
+	for _, src := range files {
+		if _, e := os.Stat(src); e != nil {
+			t.Fatal("source modified")
+		}
+	}
+}

@@ -1,0 +1,6 @@
+.git
+*.db*
+*.env
+data
+staging
+**/__pycache__

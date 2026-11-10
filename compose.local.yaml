@@ -1,0 +1,52 @@
+# Isolated local build. No production paths, ports, routes or shared service changes.
+services:
+  api:
+    build: ./backend
+    environment:
+      ARRDIO_PUBLIC_URL: ${ARRDIO_PUBLIC_URL:-http://localhost:3000/agent}
+      ARRDIO_GATEWAY_TOKEN: ${ARRDIO_GATEWAY_TOKEN:?set a random gateway token}
+      ARRDIO_ENCRYPTION_KEY: ${ARRDIO_ENCRYPTION_KEY:?set the persistent base64-encoded 32-byte key}
+      ARRDIO_WORKERS: "false"
+      ARRDIO_ROUTES_FILE: ${ARRDIO_ROUTES_FILE:-}
+      PROWLARR_URL: ${PROWLARR_URL:-}
+      PROWLARR_API_KEY: ${PROWLARR_API_KEY:-}
+      QBITTORRENT_URL: ${QBITTORRENT_URL:-}
+      QBITTORRENT_USERNAME: ${QBITTORRENT_USERNAME:-}
+      QBITTORRENT_PASSWORD: ${QBITTORRENT_PASSWORD:-}
+      QBITTORRENT_CATEGORY: ${QBITTORRENT_CATEGORY:-}
+      ARRDIO_TORRENT_ROOT: ${ARRDIO_TORRENT_ROOT:-}
+      SLSKD_URL: ${SLSKD_URL:-}
+      SLSKD_API_KEY: ${SLSKD_API_KEY:-}
+      ARRDIO_SOULSEEK_ROOT: ${ARRDIO_SOULSEEK_ROOT:-}
+      ABB_URL: ${ABB_URL:-}
+      ABB_USERNAME: ${ABB_USERNAME:-}
+      ABB_PASSWORD: ${ABB_PASSWORD:-}
+      OPENROUTER_URL: ${OPENROUTER_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-typesafe/jev-router}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      AUDIOBOOKSHELF_URL: ${AUDIOBOOKSHELF_URL:-}
+      AUDIOBOOKSHELF_TOKEN: ${AUDIOBOOKSHELF_TOKEN:-}
+      AUDIOBOOKSHELF_PUBLIC_URL: ${AUDIOBOOKSHELF_PUBLIC_URL:-}
+      KAVITA_URL: ${KAVITA_URL:-}
+      KAVITA_AUTH_KEY: ${KAVITA_AUTH_KEY:-}
+      KAVITA_PUBLIC_URL: ${KAVITA_PUBLIC_URL:-}
+      CLIPROXY_URL: ${CLIPROXY_URL:-}
+      CLIPROXY_KEY: ${CLIPROXY_KEY:-}
+    volumes:
+      - acquisition-data:/data
+  web:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:${ARRDIO_WEB_PORT:-3000}:3000"
+    environment:
+      NUXT_ARRDIO_BASE: http://api:2131
+      NUXT_ARRDIO_GATEWAY_TOKEN: ${ARRDIO_GATEWAY_TOKEN:?set a random gateway token}
+      NUXT_SESSION_PASSWORD: ${NUXT_SESSION_PASSWORD:?set a persistent session secret}
+      NUXT_OAUTH_AUTHENTIK_CLIENT_ID: ${NUXT_OAUTH_AUTHENTIK_CLIENT_ID:-}
+      NUXT_OAUTH_AUTHENTIK_CLIENT_SECRET: ${NUXT_OAUTH_AUTHENTIK_CLIENT_SECRET:-}
+      NUXT_OAUTH_AUTHENTIK_DOMAIN: ${NUXT_OAUTH_AUTHENTIK_DOMAIN:-}
+      NUXT_OAUTH_AUTHENTIK_REDIRECT_URL: ${NUXT_OAUTH_AUTHENTIK_REDIRECT_URL:-}
+    depends_on:
+      - api
+volumes:
+  acquisition-data:

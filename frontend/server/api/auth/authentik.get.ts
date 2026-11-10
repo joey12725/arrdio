@@ -1,10 +1,10 @@
 export default defineOAuthAuthentikEventHandler({
-  async onSuccess(event, { user, tokens }) {
-    await setUserSession(event, { user })
-    return sendRedirect(event, '/')
+  async onSuccess(event, { user }) {
+    await setUserSession(event, { user });
+    return sendRedirect(event, "/");
   },
-  onError(event, error) {
-    console.error('Authentik OAuth error:', error)
-    return sendRedirect(event, '/auth/login')
-  }
-})
+  onError(event) {
+    console.error("Authentik OAuth failed; sensitive provider details omitted");
+    return sendRedirect(event, "/auth/login");
+  },
+});

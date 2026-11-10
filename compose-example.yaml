@@ -1,56 +1,64 @@
-
-
+# Production example for the durable acquisition release. See docs/OPERATIONS.md.
+#
+# Secrets come from two operator-owned env files outside the checkout (mode 0600),
+# one per service, so the web container never holds provider credentials. They
+# never come from this file, build arguments or image layers. Validate with
+# `docker compose -f compose-example.yaml config --quiet`; never print the
+# resolved config, because it contains those secrets.
+#
+# Images must be pinned to an explicitly published tag. Nothing here pulls :latest.
 services:
   api:
-    build:
-      context: ./backend
-    image: arrdio-api:latest
+    image: ${ARRDIO_API_IMAGE:-ashwinrameshdocker/arrdio-api}:${ARRDIO_IMAGE_TAG:?set the published image tag}
     container_name: arrdio-api
-    # Persist the DB (and anything else you might write) on the host
-    volumes:
-      - db-data:/app/data
-      - ./ebooks:/ebooks:rw
-    ports:
-      - "2130:2130"
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:2130/"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    networks: ["internal"]
+    # Must own the data directory and be able to write the library routes.
+    # On Unraid shared media this is usually 99:100 (nobody:users).
+    user: ${ARRDIO_UID:-10001}:${ARRDIO_GID:-10001}
+    env_file:
+      - ${ARRDIO_API_ENV_FILE:?api secrets env file}
+    environment:
+      ARRDIO_JOBS_DB: /data/jobs.db
+      ARRDIO_STAGING: /data/staging
+      ARRDIO_ENCRYPTION_KEY_FILE: /run/secrets/arrdio_encryption_key
+      ARRDIO_ROUTES_FILE: /config/routes.json
+      ARRDIO_TORRENT_ROOT: /payloads/torrents
+      ARRDIO_SOULSEEK_ROOT: /payloads/soulseek
+      # Keep false for the first start; enable after Settings shows every
+      # source and library as ready.
+      ARRDIO_WORKERS: ${ARRDIO_WORKERS:-false}
+    volumes:
+      # Whole application directory: database, WAL, staging and checkpoints.
+      - ${ARRDIO_DATA_DIR:?persistent application data directory}:/data
+      - ${ARRDIO_ROUTES_PATH:?operator-approved routes.json}:/config/routes.json:ro
+      # The host folder behind QBITTORRENT_CATEGORY's save path. Keep it outside
+      # the libraries: ARRDIO copies into them and the torrent keeps seeding here.
+      - ${ARRDIO_TORRENT_DIR:?host folder of the qBittorrent category save path}:/payloads/torrents:ro
+      - ${ARRDIO_SOULSEEK_DIR:?host folder of slskd completed downloads}:/payloads/soulseek:ro
+      # One mount per routes.json destination, at the same container path.
+      - ${ARRDIO_EBOOK_LIBRARY:?host ebook library root}:/libraries/books
+      - ${ARRDIO_AUDIO_LIBRARY:?host audiobook library root}:/libraries/audiobooks
+    secrets:
+      - arrdio_encryption_key
+    # No published port: only the frontend's server reaches the API. Uses the
+    # stack's default network so Prowlarr, qBittorrent and the libraries resolve.
+    expose:
+      - "2131"
 
   frontend:
-    build:  
-      context: ./frontend
-    image: arrdio-frontend:latest
+    image: ${ARRDIO_WEB_IMAGE:-ashwinrameshdocker/arrdio-frontend}:${ARRDIO_IMAGE_TAG:?set the published image tag}
     container_name: arrdio-frontend
-    environment:
-      NUXT_OIDC_TOKEN_KEY: 
-      NUXT_OIDC_SESSION_SECRET: 
-      NUXT_OIDC_AUTH_SESSION_SECRET: 
-
-      # your generic OIDC provider (key = "oidc")
-      NUXT_OIDC_PROVIDERS_OIDC_CLIENT_ID: 
-      NUXT_OIDC_PROVIDERS_OIDC_CLIENT_SECRET: 
-      NUXT_OIDC_PROVIDERS_OIDC_BASE_URL: 
-      NUXT_OIDC_PROVIDERS_OIDC_REDIRECT_URI: 
-      NUXT_OIDC_PROVIDERS_OIDC_OPEN_ID_CONFIGURATION: 
-      # rest of your public config
-      NUXT_PUBLIC_API_BASE: http://api:2130
-    ports:
-      - "3000:3000"
-    depends_on: [api]
     restart: unless-stopped
-    networks: ["internal"]
-    # volumes:
-    #   - db-data:/ebooks
+    env_file:
+      - ${ARRDIO_WEB_ENV_FILE:?web secrets env file}
+    environment:
+      NUXT_ARRDIO_BASE: http://api:2131
+    ports:
+      - "${ARRDIO_WEB_BIND:-127.0.0.1}:${ARRDIO_WEB_PORT:-3000}:3000"
+    depends_on: [api]
 
-
-
-volumes:
-  db-data:          # lives at the Docker volumes directory automatically
-
-networks:
-  internal:
-    driver: bridge
+secrets:
+  arrdio_encryption_key:
+    # Exactly 32 random bytes, readable by the api user. Back it up with the
+    # data directory: accounts cannot be decrypted without it.
+    file: ${ARRDIO_ENCRYPTION_KEY_PATH:?file holding the 32-byte encryption key}

@@ -3,3 +3,12 @@
 compose.yaml
 compose.yml
 ./compose-example.yaml
+# Local acquisition state and credentials
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+!.env.example
+**/__pycache__/
+*.pyc

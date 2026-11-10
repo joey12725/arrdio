@@ -1,61 +1,16 @@
-@import "tailwindcss";
-@import "@nuxt/ui";
-
-@theme static {
-  --font-sans: 'Public Sans', sans-serif;
-  
-  --font-display: 'Tilt Neon', regular;
-  --font-header: 'Tilt Warp', regular;
-  --breakpoint-3xl: 1920px;
-
-
-  --color-neutral: #0C1222;
-
-   --color-tertiary: #f00cb3;
-   
-   --color-primary: #36d1b2;
-  --color-header-50: #1E2838;
-  --color-header-100: #1E2838;
-  --color-header-200: #1E2838;
-  --color-header-300: #1E2838;
-  --color-header-400: #1E2838;
-  --color-header-500: #1E2838;
-  --color-header-600: #1E2838;
-  --color-header-700: #1E2838;
-  --color-header-800: #1E2838;
-  --color-header-900: #1E2838;
-  --color-header-950: #1E2838;
+:root {
+  color-scheme: dark;
+  --navy: #0C1222;
+  --mint: #36d1b2;
+  --pink: #f00cb3;
+  --header: #1E2838;
+  --muted: #b8c5d7;
 }
-
-
-.placeholder-book {
-  background: repeating-linear-gradient(
-    45deg,
-    #d1d5db,
-    #d1d5db 10px,
-    #e5e7eb 10px,
-    #e5e7eb 20px
-  );
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-
-
-@keyframes neonPulse {
-  0%, 100% {
-    text-shadow:
-      0 0 2px #f00cb3,   /* tight bright core */
-      0 0 6px rgba(240, 12, 179, 0.6); /* subtle outer glow */
-  }
-  50% {
-    text-shadow:
-      0 0 3px #ff33cc,   /* slightly brighter pulse */
-      0 0 8px rgba(240, 12, 179, 0.7); /* soft expansion */
-  }
-}
-
-.neon-text {
-  animation: neonPulse 2s infinite alternate;
-}
+body { margin: 0; background: var(--navy); color: #f3f6fc; font-family: 'Public Sans', sans-serif; }
+* { box-sizing: border-box; }
+button, input, select, textarea { font: inherit; }
+:focus-visible { outline: 2px solid var(--mint); outline-offset: 4px; }
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+input[type=checkbox] { accent-color: var(--mint); }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; } }

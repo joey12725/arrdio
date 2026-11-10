@@ -1,12 +1,12 @@
-<script setup lang="ts">
-import { NuxtPage } from '#components';
-
-</script>
-
 <template>
-  <div class="flex flex-col h-screen w-screen">
-    <UApp>
-        <NuxtPage/>
-    </UApp>
-  </div>
+  <main class="auth-shell"><slot /></main>
 </template>
+<style scoped>
+.auth-shell {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(ellipse at top, #243149, var(--navy) 65%);
+}
+</style>

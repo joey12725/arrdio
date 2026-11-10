@@ -1,5 +1,6 @@
 # ---------- build stage ----------
-FROM node:22-alpine AS builder
+# Platform-independent JavaScript output, so build natively and copy it over.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
 WORKDIR /app
 RUN npm install -g npm@11.6.2
 

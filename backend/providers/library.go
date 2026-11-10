@@ -298,13 +298,11 @@ func (l *Libraries) kavitaBookSearch(ctx context.Context, route Route, in jobs.I
 			continue
 		}
 		if in.Author != "" {
-			match := len(chapter.Writers) == 0
+			names := []string{}
 			for _, w := range chapter.Writers {
-				if authorOverlap(in.Author, w.Name) >= 0.7 {
-					match = true
-				}
+				names = append(names, w.Name)
 			}
-			if !match {
+			if !writersMatch(in.Author, names) {
 				continue
 			}
 		}
@@ -373,13 +371,11 @@ func (l *Libraries) kavitaItem(ctx context.Context, item libraryItem, in jobs.In
 		evidence.Language = meta.Language
 		evidence.Edition = meta.Edition
 		if in.Author != "" && len(meta.Writers) > 0 {
-			match := false
+			names := []string{}
 			for _, w := range meta.Writers {
-				if authorOverlap(in.Author, w.Name) >= 0.7 {
-					match = true
-				}
+				names = append(names, w.Name)
 			}
-			if !match {
+			if !writersMatch(in.Author, names) {
 				return false, nil
 			}
 		}

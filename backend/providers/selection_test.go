@@ -165,3 +165,20 @@ func TestAuthorOverlapMatchesOneOfSeveralCredits(t *testing.T) {
 		}
 	}
 }
+
+// Live Kavita metadata: "Yuuto Hayashi" for a request read as "Yuto Hayashi", and
+// "Clear, James" split into the writers Clear and James.
+func TestWritersMatchRomanizationAndSplitNames(t *testing.T) {
+	if !writersMatch("Yuto Hayashi", []string{"Yuuto Hayashi"}) {
+		t.Error("romanization variant missed")
+	}
+	if !writersMatch("Samuel Smiles", []string{"Smiles", "Samuel"}) {
+		t.Error("split writer names missed")
+	}
+	if writersMatch("Samuel Smiles", []string{"Samuel Butler"}) || writersMatch("Yuto Hayashi", []string{"Koji Hayashi"}) {
+		t.Error("a different author matched")
+	}
+	if !oneEdit([]rune("clark"), []rune("clarke")) || oneEdit([]rune("smith"), []rune("smyth1")) {
+		t.Error("oneEdit")
+	}
+}

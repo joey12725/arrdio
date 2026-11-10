@@ -116,18 +116,83 @@ func overlap(a, b string) float64 {
 // source lists one writer, so each credited name of two or more words is also
 // compared on its own. A lone surname never matches by itself.
 func authorOverlap(a, b string) float64 {
-	best := overlap(a, b)
+	best := nameOverlap(a, b)
 	for _, x := range authorSeparator.Split(a, -1) {
 		for _, y := range append(authorSeparator.Split(b, -1), b) {
 			if len(tokens(x)) < 2 || len(tokens(y)) < 2 {
 				continue
 			}
-			if v := overlap(x, y); v > best {
+			if v := nameOverlap(x, y); v > best {
 				best = v
 			}
 		}
 	}
 	return best
+}
+
+// nameOverlap is overlap for personal names, where romanizations differ by a
+// letter ("Yuto Hayashi", "Yuuto Hayashi"): tokens of four or more letters one
+// edit apart count as the same name part.
+func nameOverlap(a, b string) float64 {
+	if v := overlap(a, b); v == 1 {
+		return v
+	}
+	x, y := tokens(a), tokens(b)
+	if len(x) == 0 {
+		return 0
+	}
+	n := 0
+	for v := range x {
+		for w := range y {
+			if v == w || (len([]rune(v)) >= 4 && len([]rune(w)) >= 4 && oneEdit([]rune(v), []rune(w))) {
+				n++
+				break
+			}
+		}
+	}
+	return float64(n) / float64(len(x))
+}
+
+// oneEdit reports whether a and b differ by at most one insertion, deletion or
+// substitution.
+func oneEdit(a, b []rune) bool {
+	if len(a) > len(b) {
+		a, b = b, a
+	}
+	if len(b)-len(a) > 1 {
+		return false
+	}
+	i, j, edits := 0, 0, 0
+	for i < len(a) && j < len(b) {
+		if a[i] == b[j] {
+			i++
+			j++
+			continue
+		}
+		edits++
+		if edits > 1 {
+			return false
+		}
+		if len(a) == len(b) {
+			i++
+		}
+		j++
+	}
+	return edits+(len(b)-j)-(len(a)-i) <= 1
+}
+
+// writersMatch reports whether requested names one of a library's writers, or
+// all of them read together (Kavita splits "Clear, James" into two people).
+func writersMatch(requested string, writers []string) bool {
+	if len(writers) == 0 {
+		return true
+	}
+	for _, w := range writers {
+		if authorOverlap(requested, w) >= 0.7 {
+			return true
+		}
+	}
+	return authorOverlap(requested, strings.Join(writers, " ")) >= 0.7
 }
 
 func Rank(in jobs.Input, format string, candidates []jobs.Candidate) []jobs.Candidate {

@@ -770,6 +770,13 @@ func (r *Runtime) step(ctx context.Context, format string) {
 		end("waiting_library", "Library connection is not configured", nil, nil)
 		return
 	}
+	// An ebook bound for a manga library is searched as a manga: by series
+	// and volume, among comics.
+	search := in
+	if place != format {
+		search = placementInput(in, place)
+		search.Kind = "manga"
+	}
 	presence, e := r.Library.Presence(ctx, in, format)
 	if e == nil && place != format {
 		var routed []Presence
@@ -824,7 +831,7 @@ func (r *Runtime) step(ctx context.Context, format string) {
 		if r.Store.db.QueryRowContext(ctx, `SELECT 1 FROM failed_sources WHERE job_id=? AND provider=? AND until>?`, l.ID, s.Name(), time.Now().Unix()).Scan(&excluded) == nil {
 			continue
 		}
-		results, err := s.Search(ctx, in, format)
+		results, err := s.Search(ctx, search, format)
 		if err != nil {
 			deferred = true
 			r.SetService(s.Name(), "unavailable")

@@ -206,3 +206,73 @@ func TestRankRejectsOtherVolumeNamedInTitle(t *testing.T) {
 		t.Fatal("unvolumed book filtered", novel)
 	}
 }
+
+// Ebooks come from private trackers only, among ebook categories, and never as
+// a container Kavita cannot read.
+func TestProwlarrEbooksFromPrivateTrackersOnly(t *testing.T) {
+	var searched []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/v1/indexer" {
+			w.Write([]byte(`[{"id":18,"name":"MyAnonamouse","enable":true,"privacy":"private","capabilities":{"categories":[{"id":7020,"name":"Books/EBook","subCategories":[]},{"id":7030,"name":"Books/Comics","subCategories":[]},{"id":3030,"name":"Audio/Audiobook","subCategories":[]}]}},
+{"id":15,"name":"The Pirate Bay","enable":true,"privacy":"public","capabilities":{"categories":[{"id":7020,"name":"Books/EBook","subCategories":[]}]}}]`))
+			return
+		}
+		searched = append(searched, r.URL.Query().Get("indexerIds")+":"+strings.Join(r.URL.Query()["categories"], ","))
+		cats := `[{"id":7020,"name":"Books/EBook","subCategories":[]}]`
+		w.Write([]byte(`[{"guid":"mobi","title":"The War of the Worlds by Herbert George Wells [ENG / MOBI]","infoHash":"a","seeders":9,"categories":` + cats + `},
+{"guid":"epub","title":"The War of the Worlds by Herbert George Wells [ENG / EPUB]","infoHash":"b","seeders":4,"categories":` + cats + `}]`))
+	}))
+	defer server.Close()
+	p := &Prowlarr{URL: server.URL, Key: "fixture"}
+	got, e := p.Search(context.Background(), jobs.Input{Title: "The War of the Worlds", Author: "Herbert George Wells"}, "ebook")
+	if e != nil || len(got) != 1 || got[0].ID != "epub" || got[0].Format != "ebook" {
+		t.Fatal(got, e)
+	}
+	if strings.Join(searched, " ") != "18:7020" {
+		t.Fatal("searched", searched)
+	}
+}
+
+// Nyaa names volumes "Series v05" and packs "Series v01-20", without authors.
+func TestProwlarrMangaTriesNyaaStyleQueries(t *testing.T) {
+	var queries []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/v1/indexer" {
+			w.Write([]byte(`[{"id":16,"name":"Nyaa.si","enable":true,"privacy":"public","capabilities":{"categories":[{"id":156719,"name":"Literature  English-translated","subCategories":[]}]}}]`))
+			return
+		}
+		q := r.URL.Query().Get("query")
+		queries = append(queries, q)
+		if q == "Iron Lantern" {
+			w.Write([]byte(`[{"guid":"pack","title":"Iron Lantern v01-20 + 187-230 (2020-2025) (Digital) (scan0)","infoHash":"c","seeders":172,"categories":[{"id":156719,"name":"Literature  English-translated","subCategories":[]}]}]`))
+			return
+		}
+		w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+	p := &Prowlarr{URL: server.URL, Key: "fixture"}
+	got, e := p.Search(context.Background(), jobs.Input{Title: "Iron Lantern", Author: "Daichi Morita", Volume: "5", Kind: "manga"}, "manga")
+	if e != nil || len(got) != 1 || got[0].ID != "pack" {
+		t.Fatal(got, e)
+	}
+	if strings.Join(queries, "|") != "Iron Lantern Daichi Morita 5|Iron Lantern v05|Iron Lantern" {
+		t.Fatal(queries)
+	}
+	// A comic requested as an ebook searches the same way.
+	queries = nil
+	if got, _ := p.Search(context.Background(), jobs.Input{Title: "Iron Lantern", Author: "Daichi Morita", Volume: "5", Kind: "manga"}, "ebook"); len(got) != 1 || got[0].Format != "ebook" {
+		t.Fatal("comic ebook", got)
+	}
+}
+
+func TestReadableEbooksKeepsBestContainer(t *testing.T) {
+	got := readableEbooks([]string{"/d/Book.mobi", "/d/Book.pdf", "/d/Book.epub", "/d/Book.azw3", "/d/cover.jpg", "/d/metadata.opf"})
+	if len(got) != 1 || got[0] != "/d/Book.epub" {
+		t.Fatal(got)
+	}
+	if got := readableEbooks([]string{"/d/Book.mobi", "/d/Book.azw3"}); len(got) != 0 {
+		t.Fatal("unreadable kept", got)
+	}
+}

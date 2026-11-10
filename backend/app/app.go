@@ -81,7 +81,8 @@ func Run() {
 	abb := &providers.ABB{URL: os.Getenv("ABB_URL"), Cookie: os.Getenv("ABB_COOKIE"), Torrent: torrent}
 	abb.Username = os.Getenv("ABB_USERNAME")
 	abb.Password = os.Getenv("ABB_PASSWORD")
-	r.Sources = []jobs.Source{z, p, abb}
+	// Torrents first: a book on MyAnonamouse saves a Z-Library download.
+	r.Sources = []jobs.Source{p, z, abb}
 	r.Sources = append(r.Sources, &providers.Soulseek{URL: os.Getenv("SLSKD_URL"), Key: os.Getenv("SLSKD_API_KEY"), DownloadRoot: os.Getenv("ARRDIO_SOULSEEK_ROOT")})
 	for name, key := range map[string]string{"prowlarr": "PROWLARR_URL", "abb": "ABB_URL", "soulseek": "SLSKD_API_KEY"} {
 		state := "configured; not probed"

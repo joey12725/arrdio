@@ -50,7 +50,8 @@ func categoryIDs(categories []Category, kind string) []int {
 	out := []int{}
 	for _, c := range categories {
 		n := strings.ToLower(c.Name)
-		if (kind == "audio" && (strings.Contains(n, "audiobook") || strings.Contains(n, "audio book"))) || (kind == "manga" && (strings.Contains(n, "literature") || strings.Contains(n, "comics"))) {
+		ebook := (strings.Contains(n, "ebook") || strings.Contains(n, "e-book")) && !strings.Contains(n, "audio") && !strings.Contains(n, "comic")
+		if (kind == "audio" && (strings.Contains(n, "audiobook") || strings.Contains(n, "audio book"))) || (kind == "manga" && (strings.Contains(n, "literature") || strings.Contains(n, "comics"))) || (kind == "ebook" && ebook) {
 			out = append(out, c.ID)
 		}
 		out = append(out, categoryIDs(c.Children, kind)...)
@@ -73,8 +74,26 @@ func releaseTag(title string) (author, language, extension string) {
 	}
 	return strings.TrimSpace(m[2]), strings.ToLower(m[3]), extension
 }
+
+// searchKind is the indexer category family for a request. An ebook that is
+// a manga or comic (kind manga, set when it is routed to a manga library) is
+// searched among comics and literature, where CBZ releases live.
+func searchKind(in jobs.Input, format string) string {
+	if format == "ebook" && in.Kind == "manga" {
+		return "manga"
+	}
+	return format
+}
+
+// ebookReadable lists the containers Kavita reads, by search kind. MOBI and
+// AZW3 releases would place files the library cannot open.
+var ebookReadable = map[string]map[string]bool{
+	"ebook": {"epub": true, "pdf": true},
+	"manga": {"epub": true, "pdf": true, "cbz": true, "cbr": true},
+}
+
 func (p *Prowlarr) Search(ctx context.Context, in jobs.Input, format string) ([]jobs.Candidate, error) {
-	if format == "ebook" || p.URL == "" {
+	if p.URL == "" {
 		return nil, nil
 	}
 	var indexers []prowlarrIndexer
@@ -92,6 +111,15 @@ func (p *Prowlarr) Search(ctx context.Context, in jobs.Input, format string) ([]
 	queries := []string{strings.Join(strings.Fields(in.Title+" "+author+" "+in.Volume), " ")}
 	if base, _, ok := strings.Cut(in.Title, ":"); ok && strings.TrimSpace(base) != "" {
 		queries = append(queries, strings.Join(strings.Fields(base+" "+author+" "+in.Volume), " "))
+	}
+	// Nyaa names releases "Series v05" or "Series v01-20" without authors, so
+	// manga also searches the volume-tagged and bare series title; ranking
+	// keeps only releases covering the requested volume.
+	if searchKind(in, format) == "manga" {
+		if n, e := strconv.Atoi(in.Volume); e == nil {
+			queries = append(queries, fmt.Sprintf("%s v%02d", in.Title, n))
+		}
+		queries = append(queries, in.Title)
 	}
 	for _, query := range queries {
 		ranked := p.search(ctx, indexers, headers, query, in, format)
@@ -113,6 +141,7 @@ type prowlarrIndexer struct {
 	ID           int    `json:"id"`
 	Name         string `json:"name"`
 	Enable       bool   `json:"enable"`
+	Privacy      string `json:"privacy"`
 	Capabilities struct {
 		Categories []Category `json:"categories"`
 	} `json:"capabilities"`
@@ -124,7 +153,13 @@ func (p *Prowlarr) search(ctx context.Context, indexers []prowlarrIndexer, heade
 		if !indexer.Enable {
 			continue
 		}
-		cats := categoryIDs(indexer.Capabilities.Categories, format)
+		kind := searchKind(in, format)
+		// Book torrents come only from private trackers (MyAnonamouse):
+		// public ebook uploads are often mislabeled or unsafe.
+		if kind == "ebook" && indexer.Privacy != "private" {
+			continue
+		}
+		cats := categoryIDs(indexer.Capabilities.Categories, kind)
 		if len(cats) == 0 {
 			continue
 		}
@@ -145,7 +180,7 @@ func (p *Prowlarr) search(ctx context.Context, indexers []prowlarrIndexer, heade
 			continue
 		}
 		for _, v := range results {
-			if len(categoryIDs(v.Categories, format)) == 0 {
+			if len(categoryIDs(v.Categories, kind)) == 0 {
 				continue
 			}
 			link := v.MagnetURL
@@ -154,6 +189,9 @@ func (p *Prowlarr) search(ctx context.Context, indexers []prowlarrIndexer, heade
 			}
 			extra, _ := json.Marshal(map[string]string{"hash": v.InfoHash, "format": format, "volume": in.Volume})
 			author, language, extension := releaseTag(v.Title)
+			if format == "ebook" && extension != "" && !ebookReadable[kind][extension] {
+				continue
+			}
 			out = append(out, jobs.Candidate{ID: v.GUID, Provider: p.Name(), Title: v.Title, Author: author, Language: language, Extension: extension, Format: format, Volume: volumeCoverage(v.Title), Seeders: v.Seeders, URL: link, Extra: extra})
 		}
 	}
@@ -579,6 +617,9 @@ func (t *Torrent) Poll(ctx context.Context, r jobs.Receipt) (jobs.Receipt, error
 		}
 		paths = append(paths, path)
 	}
+	if r.Format == "ebook" {
+		paths = readableEbooks(paths)
+	}
 	if len(paths) == 0 {
 		return r, errors.New("empty torrent")
 	}
@@ -791,4 +832,25 @@ func (a *ABB) Prepare(ctx context.Context, c jobs.Candidate, d string) (jobs.Rec
 }
 func (a *ABB) Reconcile(ctx context.Context, r jobs.Receipt) (jobs.Receipt, error) {
 	return a.Torrent.Poll(ctx, r)
+}
+
+// readableEbooks keeps the best container an ebook torrent carries: book
+// releases often bundle EPUB, MOBI, AZW3 and PDF copies of one work, and
+// placing them all would show the book several times or not at all.
+func readableEbooks(paths []string) []string {
+	best, keep := -1, []string{}
+	for _, path := range paths {
+		ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
+		if !ebookReadable["manga"][ext] {
+			continue
+		}
+		rank := map[string]int{"epub": 0, "cbz": 1, "cbr": 2, "pdf": 3}[ext]
+		switch {
+		case best < 0 || rank < best:
+			best, keep = rank, []string{path}
+		case rank == best:
+			keep = append(keep, path)
+		}
+	}
+	return keep
 }

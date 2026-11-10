@@ -136,3 +136,22 @@ func TestPlacementOwnedByLibraryOwner(t *testing.T) {
 		}
 	}
 }
+
+// An existing author or series folder with different punctuation is reused
+// instead of creating a near-duplicate beside it.
+func TestImportFolderReusesEquivalentFolder(t *testing.T) {
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	for _, d := range []string{"L. M. Montgomery/Kilmeny", "Elowen - Past Winter's End", "Elowen- Past Winter's End"} {
+		os.MkdirAll(filepath.Join(root, d), 0777)
+	}
+	os.WriteFile(filepath.Join(root, "Elowen - Past Winter's End", "c0118.cbz"), nil, 0666)
+	if got, _ := importFolder(root, safePart("L M Montgomery"), safePart("Kilmeny")); got != filepath.Join(root, "L. M. Montgomery", "Kilmeny") {
+		t.Fatalf("author folder = %q", got)
+	}
+	if got, _ := importFolder(root, safePart("Elowen: Past Winter’s End")); got != filepath.Join(root, "Elowen - Past Winter's End") {
+		t.Fatalf("series folder = %q", got)
+	}
+	if got, _ := importFolder(root, safePart("Elowen"), "x"); got != filepath.Join(root, "Elowen", "x") {
+		t.Fatalf("a different series reused a folder: %q", got)
+	}
+}

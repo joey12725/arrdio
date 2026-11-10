@@ -729,6 +729,30 @@ func ownPlacement(path string, mode os.FileMode) error {
 	return os.Chmod(path, mode)
 }
 
+// matchingFolder finds an existing folder in dir that names the same author,
+// title or series as part once case and punctuation are ignored ("L. M. Montgomery"
+// for "L M Montgomery", "Elowen - Past Winter's End" for "Elowen Past
+// Winter's End"), the way Kavita groups series. The fullest one wins.
+func matchingFolder(dir, part string) string {
+	key := func(s string) string { return strings.Join(words.FindAllString(strings.ToLower(s), -1), "") }
+	want := key(part)
+	entries, e := os.ReadDir(dir)
+	if want == "" || e != nil {
+		return ""
+	}
+	best, most := "", -1
+	for _, entry := range entries {
+		if !entry.IsDir() || key(entry.Name()) != want {
+			continue
+		}
+		children, _ := os.ReadDir(filepath.Join(dir, entry.Name()))
+		if len(children) > most {
+			best, most = entry.Name(), len(children)
+		}
+	}
+	return best
+}
+
 func importFolder(root string, parts ...string) (string, error) {
 	if e := os.MkdirAll(root, 0777); e != nil {
 		return "", e
@@ -738,7 +762,13 @@ func importFolder(root string, parts ...string) (string, error) {
 		return "", e
 	}
 	for _, part := range parts {
-		current = filepath.Join(current, part)
+		next := filepath.Join(current, part)
+		if _, e := os.Lstat(next); os.IsNotExist(e) {
+			if existing := matchingFolder(current, part); existing != "" {
+				next = filepath.Join(current, existing)
+			}
+		}
+		current = next
 		if e = os.Mkdir(current, 0777); e == nil {
 			if e = ownPlacement(current, 0777); e != nil {
 				return "", e

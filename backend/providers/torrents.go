@@ -658,7 +658,7 @@ func (a *ABB) Search(ctx context.Context, in jobs.Input, format string) ([]jobs.
 				if attr.Key == "href" && strings.Contains(attr.Val, "/abss/") {
 					u, e := abbDetailURL(base, attr.Val)
 					if e == nil {
-						if len(links) < 8 && !seen[u.Path] {
+						if len(links) < 5 && !seen[u.Path] {
 							seen[u.Path] = true
 							links = append(links, u.String())
 						}

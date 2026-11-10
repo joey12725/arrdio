@@ -11,7 +11,7 @@ import (
 )
 
 // Fixtures run unpaced; TestABBRequestsArePaced covers pacing itself.
-func init() { abbPace, slskdPoll = 0, time.Millisecond }
+func init() { abbPace, abbCooldown, slskdPoll = 0, 0, time.Millisecond }
 
 func TestABBRequestsArePaced(t *testing.T) {
 	var times []time.Time
@@ -63,5 +63,23 @@ func TestABBDetailFailureIsRetriedNotCached(t *testing.T) {
 	}
 	if r, e := abb.Search(context.Background(), in, "audio"); e != nil || len(r) != 1 {
 		t.Fatal("transient failure was cached", r, e, details.Load())
+	}
+}
+
+func TestABBCoolsDownAfterRefusal(t *testing.T) {
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+	client := &http.Client{Transport: &pacedTransport{next: http.DefaultTransport, cooldown: time.Hour}}
+	resp, e := client.Get(server.URL)
+	if e != nil {
+		t.Fatal(e)
+	}
+	resp.Body.Close()
+	if _, e = client.Get(server.URL); e == nil || hits.Load() != 1 {
+		t.Fatalf("request sent during cool-down: hits=%d err=%v", hits.Load(), e)
 	}
 }

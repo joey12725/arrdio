@@ -19,7 +19,7 @@ func (a *ABB) newClient() (*http.Client, error) {
 		return nil, errors.New("ABB origin invalid")
 	}
 	jar, _ := cookiejar.New(nil)
-	return &http.Client{Timeout: 30 * time.Second, Jar: jar, Transport: &pacedTransport{next: http.DefaultTransport, interval: abbPace}, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+	return &http.Client{Timeout: 30 * time.Second, Jar: jar, Transport: &pacedTransport{next: http.DefaultTransport, interval: abbPace, cooldown: abbCooldown}, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) > 5 || req.URL.Host != base.Host || req.URL.User != nil {
 			return errors.New("ABB cross-origin redirect rejected")
 		}
@@ -33,19 +33,33 @@ func (a *ABB) newClient() (*http.Client, error) {
 	}}, nil
 }
 
-// abbPace spaces every request to ABB, including logins and redirects. Unpaced
-// bursts of detail pages got the client's IP blocked during live testing.
-var abbPace = 2 * time.Second
+// abbPace spaces every request to ABB, including logins and redirects. Bursts
+// of detail pages got the client's IP blocked during live testing, and so did
+// about 80 requests in ten minutes at a 2 s spacing.
+var abbPace = 4 * time.Second
+
+// abbCooldown silences ABB after it refuses or drops a request. A blocked IP
+// stays blocked while it keeps knocking; retrying every minute (searches) and
+// every five (probes) would only extend the block.
+var abbCooldown = 3 * time.Hour
+
+var errCoolingDown = errors.New("ABB is cooling down after a refused request")
 
 type pacedTransport struct {
 	next     http.RoundTripper
 	interval time.Duration
+	cooldown time.Duration
 	mu       sync.Mutex
 	last     time.Time
+	until    time.Time
 }
 
 func (p *pacedTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	p.mu.Lock()
+	if time.Now().Before(p.until) {
+		p.mu.Unlock()
+		return nil, errCoolingDown
+	}
 	slot := time.Now()
 	if next := p.last.Add(p.interval); next.After(slot) {
 		slot = next
@@ -61,7 +75,20 @@ func (p *pacedTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		case <-timer.C:
 		}
 	}
-	return p.next.RoundTrip(r)
+	response, e := p.next.RoundTrip(r)
+	refused := e != nil && r.Context().Err() == nil
+	if e == nil {
+		switch response.StatusCode {
+		case http.StatusForbidden, http.StatusTooManyRequests, http.StatusServiceUnavailable:
+			refused = true
+		}
+	}
+	if refused && p.cooldown > 0 {
+		p.mu.Lock()
+		p.until = time.Now().Add(p.cooldown)
+		p.mu.Unlock()
+	}
+	return response, e
 }
 
 func abbDetailURL(base *url.URL, href string) (*url.URL, error) {

@@ -516,12 +516,14 @@ func (r *Runtime) category(ctx context.Context, l Lease) string {
 // placementCategory returns the job's category. A job without one, whose format
 // has several routes, is classified once before its first placement and the
 // choice stored, so a non-fiction book requested from the UI does not land in
-// the default fiction library. Failure keeps the default route.
+// the default fiction library. Ebooks may also be manga (Z-Library carries
+// volumes as EPUB and PDF), so manga routes are offered to ebook jobs. Failure
+// keeps the default route.
 func (r *Runtime) placementCategory(ctx context.Context, l Lease, in Input, format string) string {
 	if category := r.category(ctx, l); category != "" || r.ClassifyCategory == nil {
 		return category
 	}
-	rows, e := r.Store.db.QueryContext(ctx, `SELECT category FROM routing WHERE format=? ORDER BY rowid`, format)
+	rows, e := r.Store.db.QueryContext(ctx, `SELECT category FROM routing WHERE format=? OR (?='ebook' AND format='manga') ORDER BY rowid`, format, format)
 	if e != nil {
 		return ""
 	}
@@ -544,6 +546,16 @@ func (r *Runtime) placementCategory(ctx context.Context, l Lease, in Input, form
 		}
 	}
 	return ""
+}
+
+// placementFormat is the format of the library a job lands in: its own, or
+// manga for an ebook classified into a manga route.
+func (r *Runtime) placementFormat(ctx context.Context, category, format string) string {
+	var routed string
+	if category != "" && r.Store.db.QueryRowContext(ctx, `SELECT format FROM routing WHERE category=?`, category).Scan(&routed) == nil && format == "ebook" && routed == "manga" {
+		return routed
+	}
+	return format
 }
 func (r *Runtime) reject(ctx context.Context, l Lease, provider string) {
 	tx, e := r.Store.db.BeginTx(ctx, nil)
@@ -725,11 +737,12 @@ func (r *Runtime) step(ctx context.Context, format string) {
 	end := func(state, message string, rec *Receipt, p []Presence) {
 		r.Store.transition(ctx, l, state, message, rec, p)
 	}
-	category := r.category(ctx, l)
+	category := r.placementCategory(ctx, l, in, format)
+	place := r.placementFormat(ctx, category, format)
 	var explicitChoice int
 	r.Store.db.QueryRowContext(ctx, `SELECT count(*) FROM candidate_choices WHERE job_id=?`, l.ID).Scan(&explicitChoice)
 	if v, ok := r.Library.(RouteValidator); ok {
-		if e := v.ValidateRoute(ctx, in, format, category); e != nil {
+		if e := v.ValidateRoute(ctx, in, place, category); e != nil {
 			end("waiting_library", "No compatible writable destination route", nil, nil)
 			return
 		}
@@ -739,6 +752,11 @@ func (r *Runtime) step(ctx context.Context, format string) {
 		return
 	}
 	presence, e := r.Library.Presence(ctx, in, format)
+	if e == nil && place != format {
+		var routed []Presence
+		routed, e = r.Library.Presence(ctx, in, place)
+		presence = append(presence, routed...)
+	}
 	if e != nil {
 		end("waiting_library", "Library availability could not be confirmed", nil, presence)
 		return
@@ -973,7 +991,7 @@ func (r *Runtime) step(ctx context.Context, format string) {
 	if !r.Store.phase(ctx, l, "importing") {
 		return
 	}
-	p, e := r.Library.Import(r.importContext(ctx, l), in, format, receipt.Paths, r.category(ctx, l))
+	p, e := r.Library.Import(r.importContext(ctx, l), in, place, receipt.Paths, category)
 	if e != nil {
 		message := "Verified download retained; library import pending"
 		if errors.Is(e, ErrPlacementConflict) {
@@ -1133,7 +1151,8 @@ func (r *Runtime) resume(ctx context.Context, format string) {
 	if !r.Store.phase(ctx, l, "importing") {
 		return
 	}
-	presence, e := r.Library.Import(r.importContext(ctx, l), in, format, next.Paths, r.placementCategory(ctx, l, in, format))
+	category := r.placementCategory(ctx, l, in, format)
+	presence, e := r.Library.Import(r.importContext(ctx, l), in, r.placementFormat(ctx, category, format), next.Paths, category)
 	state := "importing"
 	message := ""
 	if e != nil {

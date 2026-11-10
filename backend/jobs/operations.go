@@ -154,5 +154,6 @@ func (r *Runtime) Refresh(ctx context.Context, id int64, format string) error {
 	if !ok {
 		return errors.New("library refresh unavailable")
 	}
-	return service.Refresh(ctx, format, r.category(ctx, Lease{ID: job}))
+	category := r.category(ctx, Lease{ID: job})
+	return service.Refresh(ctx, r.placementFormat(ctx, category, format), category)
 }

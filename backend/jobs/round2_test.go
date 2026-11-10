@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -274,5 +275,35 @@ func TestPlacementCategoryClassifiesOnce(t *testing.T) {
 	answer = "poetry"
 	if got := r.placementCategory(ctx, other, Input{Title: "Other"}, "ebook"); got != "" {
 		t.Fatal("unconfigured category accepted", got)
+	}
+}
+
+// An ebook from Z-Library can be a manga volume: manga routes are offered to
+// ebook jobs, and a job classified as manga is placed with the manga format.
+func TestEbookClassifiedAsManga(t *testing.T) {
+	r := runtimeTest(t, filepath.Join(t.TempDir(), "jobs.db"))
+	l := claimTest(t, r, "Iron Lantern, Vol. 1")
+	r.ConfigureRoute(ctx, "fiction", "ebook", "kavita", "1", t.TempDir())
+	r.ConfigureRoute(ctx, "nonfiction", "ebook", "kavita", "3", t.TempDir())
+	r.ConfigureRoute(ctx, "manga", "manga", "kavita", "2", t.TempDir())
+	r.ConfigureRoute(ctx, "audiobooks", "audio", "audiobookshelf", "a", t.TempDir())
+	r.ClassifyCategory = func(_ context.Context, in Input, format string, options []string) string {
+		if strings.Join(options, ",") != "fiction,nonfiction,manga" {
+			t.Fatalf("options %v for %s", options, format)
+		}
+		return "manga"
+	}
+	category := r.placementCategory(ctx, l, Input{Title: "Iron Lantern, Vol. 1"}, "ebook")
+	if category != "manga" {
+		t.Fatal(category)
+	}
+	if got := r.placementFormat(ctx, category, "ebook"); got != "manga" {
+		t.Fatal("manga ebook placed as", got)
+	}
+	if got := r.placementFormat(ctx, "nonfiction", "ebook"); got != "ebook" {
+		t.Fatal(got)
+	}
+	if got := r.placementFormat(ctx, "audiobooks", "ebook"); got != "ebook" {
+		t.Fatal("cross-format route outside manga accepted", got)
 	}
 }

@@ -72,6 +72,12 @@ account pages redirect to Settings, which has no remove-account operation.
 | `ARRDIO_LIBRARY_OWNER` | `uid:gid` given to every file/folder ARRDIO creates in a library (e.g. `99:100`); needs a root process. Use it when existing library folders belong to root |
 | `ARRDIO_ROUTES` | Alternative: the same routing JSON inline (the file wins when both are set) |
 
+A book requested without a category, whose format has several routes, is
+classified once (standard Luna) into one of the route categories before it is
+placed. Ebook jobs are also offered the manga routes, since Z-Library carries
+manga volumes as EPUB and PDF; an ebook classified as manga is checked against
+and placed in the manga library with manga naming (`Series/Series v01`).
+
 Nuxt needs `NUXT_ARRDIO_BASE`, `NUXT_ARRDIO_GATEWAY_TOKEN`, a persistent
 `NUXT_SESSION_PASSWORD`, and its existing `NUXT_OAUTH_AUTHENTIK_*` values.
 Existing `NUXT_OIDC_PROVIDERS_OIDC_*` aliases remain accepted. The callback path

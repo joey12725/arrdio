@@ -3,9 +3,11 @@ package providers
 import (
 	"archive/zip"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ashkaty/arrdio-api/jobs"
@@ -92,6 +94,45 @@ func TestSafePartKeepsLibraryPunctuation(t *testing.T) {
 	} {
 		if got := safePart(in); got != want {
 			t.Errorf("safePart(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// New folders and files are handed to the library owner with the shared-media
+// modes; folders that already existed keep their owner and mode.
+func TestPlacementOwnedByLibraryOwner(t *testing.T) {
+	root := t.TempDir()
+	existing := filepath.Join(root, "Walter Scott")
+	if e := os.Mkdir(existing, 0755); e != nil {
+		t.Fatal(e)
+	}
+	os.Chmod(existing, 0755)
+	if e := ParseLibraryOwner(fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())); e != nil {
+		t.Fatal(e)
+	}
+	defer func() { LibraryOwner = nil }()
+	folder, e := importFolder(root, "Walter Scott", "The Bride of Lammermoor")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if info, _ := os.Stat(folder); info.Mode().Perm() != 0777 {
+		t.Fatalf("new folder mode %v", info.Mode().Perm())
+	}
+	if info, _ := os.Stat(existing); info.Mode().Perm() != 0755 {
+		t.Fatalf("existing folder changed to %v", info.Mode().Perm())
+	}
+	src := filepath.Join(t.TempDir(), "book.pdf")
+	os.WriteFile(src, append([]byte("%PDF-1.4\n"+strings.Repeat(" ", 2048)), []byte("\n%%EOF\n")...), 0600)
+	dst := filepath.Join(folder, "The Bride of Lammermoor (Walter Scott).pdf")
+	if e := copyVerifiedContext(context.Background(), src, dst); e != nil {
+		t.Fatal(e)
+	}
+	if info, _ := os.Stat(dst); info.Mode().Perm() != 0666 {
+		t.Fatalf("file mode %v", info.Mode().Perm())
+	}
+	for _, bad := range []string{"99", "99:", "a:b", "-1:100", "99:100:1"} {
+		if ParseLibraryOwner(bad) == nil {
+			t.Errorf("accepted %q", bad)
 		}
 	}
 }

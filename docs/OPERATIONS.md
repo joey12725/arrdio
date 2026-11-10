@@ -69,6 +69,7 @@ account pages redirect to Settings, which has no remove-account operation.
 | `ARRDIO_STAGING` | Persistent staging directory; defaults beside the database |
 | `ARRDIO_WORKERS` | Explicit `true` to dispatch; default paused |
 | `ARRDIO_ROUTES_FILE` | Operator-approved routing JSON, outside source control |
+| `ARRDIO_LIBRARY_OWNER` | `uid:gid` given to every file/folder ARRDIO creates in a library (e.g. `99:100`); needs a root process. Use it when existing library folders belong to root |
 | `ARRDIO_ROUTES` | Alternative: the same routing JSON inline (the file wins when both are set) |
 
 Nuxt needs `NUXT_ARRDIO_BASE`, `NUXT_ARRDIO_GATEWAY_TOKEN`, a persistent

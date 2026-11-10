@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1100,6 +1101,7 @@ func (r *Runtime) resume(ctx context.Context, format string) {
 	state := "importing"
 	message := ""
 	if e != nil {
+		log.Printf("job %d: import pending: %v", l.ID, e)
 		message = "Import pending; verified originals retained"
 		if errors.Is(e, ErrPlacementConflict) {
 			message = "Placement conflict: an unowned, modified, or seeded file was preserved"

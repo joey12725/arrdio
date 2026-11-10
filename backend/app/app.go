@@ -89,6 +89,11 @@ func Run() {
 		}
 		r.SetService(name, state)
 	}
+	if owner := os.Getenv("ARRDIO_LIBRARY_OWNER"); owner != "" {
+		if providers.ParseLibraryOwner(owner) != nil {
+			log.Fatal("ARRDIO_LIBRARY_OWNER must be uid:gid")
+		}
+	}
 	library := &providers.Libraries{ABSURL: os.Getenv("AUDIOBOOKSHELF_URL"), ABSToken: os.Getenv("AUDIOBOOKSHELF_TOKEN"), KavitaURL: os.Getenv("KAVITA_URL"), KavitaToken: os.Getenv("KAVITA_TOKEN")}
 	library.KavitaKey = os.Getenv("KAVITA_AUTH_KEY")
 	library.ABSPublicURL = os.Getenv("AUDIOBOOKSHELF_PUBLIC_URL")

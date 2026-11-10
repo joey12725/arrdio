@@ -503,6 +503,9 @@ func copyVerifiedContext(ctx context.Context, src, dst string) error {
 	if e = os.Chmod(tmp.Name(), 0666); e != nil {
 		return e
 	}
+	if e = ownPlacement(tmp.Name(), 0666); e != nil {
+		return e
+	}
 	if e = jobs.CheckImport(ctx); e != nil {
 		return e
 	}
@@ -698,6 +701,34 @@ func libraryName(in jobs.Input, format, source string, index, count int) string 
 	}
 	return safePart(in.Title)
 }
+
+// LibraryOwner, when set, owns every file and folder ARRDIO creates in a library.
+// Shared media is usually nobody:users while its existing author folders were
+// created by root services, so the process runs as root and hands its own
+// placements to the library owner (files 0666, folders 0777). Existing folders
+// are never changed.
+var LibraryOwner *struct{ UID, GID int }
+
+// ParseLibraryOwner reads "uid:gid".
+func ParseLibraryOwner(value string) error {
+	var uid, gid int
+	if _, e := fmt.Sscanf(value, "%d:%d", &uid, &gid); e != nil || uid < 0 || gid < 0 || fmt.Sprintf("%d:%d", uid, gid) != value {
+		return errors.New("library owner must be uid:gid")
+	}
+	LibraryOwner = &struct{ UID, GID int }{uid, gid}
+	return nil
+}
+
+func ownPlacement(path string, mode os.FileMode) error {
+	if LibraryOwner == nil {
+		return nil
+	}
+	if e := os.Chown(path, LibraryOwner.UID, LibraryOwner.GID); e != nil {
+		return e
+	}
+	return os.Chmod(path, mode)
+}
+
 func importFolder(root string, parts ...string) (string, error) {
 	if e := os.MkdirAll(root, 0777); e != nil {
 		return "", e
@@ -708,7 +739,11 @@ func importFolder(root string, parts ...string) (string, error) {
 	}
 	for _, part := range parts {
 		current = filepath.Join(current, part)
-		if e = os.Mkdir(current, 0777); e != nil && !os.IsExist(e) {
+		if e = os.Mkdir(current, 0777); e == nil {
+			if e = ownPlacement(current, 0777); e != nil {
+				return "", e
+			}
+		} else if !os.IsExist(e) {
 			return "", e
 		}
 		info, e := os.Lstat(current)

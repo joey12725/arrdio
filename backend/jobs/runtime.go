@@ -115,12 +115,15 @@ type Runtime struct {
 	Enrich             func(context.Context, Input) (Candidate, error)
 	ExtractPhoto       func(context.Context, []byte, string) ([]Input, error)
 	DecideCandidate    func(context.Context, Input, []Candidate) int
-	ConvertAudio       func(context.Context, []string, string, string, string) (string, error)
-	VerifyLocal        func(context.Context, string, []string) ([]string, error)
-	VerifyArtifact     func(context.Context, Input, Receipt) error
-	ModelStatus        func() map[string]string
-	services           map[string]string
-	mu                 sync.Mutex
+	// ClassifyCategory picks one of the offered category names for a work, or
+	// "" to keep the format's default route.
+	ClassifyCategory func(context.Context, Input, string, []string) string
+	ConvertAudio     func(context.Context, []string, string, string, string) (string, error)
+	VerifyLocal      func(context.Context, string, []string) ([]string, error)
+	VerifyArtifact   func(context.Context, Input, Receipt) error
+	ModelStatus      func() map[string]string
+	services         map[string]string
+	mu               sync.Mutex
 }
 
 func (r *Runtime) SetService(name, state string) {
@@ -508,6 +511,39 @@ func (r *Runtime) category(ctx context.Context, l Lease) string {
 	var category string
 	r.Store.db.QueryRowContext(ctx, `SELECT category FROM representation_categories WHERE job_id=?`, l.ID).Scan(&category)
 	return category
+}
+
+// placementCategory returns the job's category. A job without one, whose format
+// has several routes, is classified once before its first placement and the
+// choice stored, so a non-fiction book requested from the UI does not land in
+// the default fiction library. Failure keeps the default route.
+func (r *Runtime) placementCategory(ctx context.Context, l Lease, in Input, format string) string {
+	if category := r.category(ctx, l); category != "" || r.ClassifyCategory == nil {
+		return category
+	}
+	rows, e := r.Store.db.QueryContext(ctx, `SELECT category FROM routing WHERE format=? ORDER BY rowid`, format)
+	if e != nil {
+		return ""
+	}
+	var options []string
+	for rows.Next() {
+		var c string
+		if rows.Scan(&c) == nil {
+			options = append(options, c)
+		}
+	}
+	rows.Close()
+	if len(options) < 2 {
+		return ""
+	}
+	chosen := r.ClassifyCategory(ctx, in, format, options)
+	for _, c := range options {
+		if c == chosen {
+			r.Store.db.ExecContext(ctx, `INSERT INTO representation_categories VALUES(?,?) ON CONFLICT(job_id) DO NOTHING`, l.ID, c)
+			return r.category(ctx, l)
+		}
+	}
+	return ""
 }
 func (r *Runtime) reject(ctx context.Context, l Lease, provider string) {
 	tx, e := r.Store.db.BeginTx(ctx, nil)
@@ -1097,7 +1133,7 @@ func (r *Runtime) resume(ctx context.Context, format string) {
 	if !r.Store.phase(ctx, l, "importing") {
 		return
 	}
-	presence, e := r.Library.Import(r.importContext(ctx, l), in, format, next.Paths, r.category(ctx, l))
+	presence, e := r.Library.Import(r.importContext(ctx, l), in, format, next.Paths, r.placementCategory(ctx, l, in, format))
 	state := "importing"
 	message := ""
 	if e != nil {

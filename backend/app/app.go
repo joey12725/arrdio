@@ -70,6 +70,7 @@ func Run() {
 	}
 	r.ExtractPhoto = models.Extract
 	r.DecideCandidate = models.Decide
+	r.ClassifyCategory = models.Classify
 	r.ConvertAudio = providers.NormalizeM4B
 	r.VerifyLocal = providers.VerifyRetained
 	r.VerifyArtifact = providers.VerifyArtifact

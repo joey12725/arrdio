@@ -246,3 +246,33 @@ func TestFreshResolvedAliasResumesCanceledOwner(t *testing.T) {
 		t.Fatal("fresh intent left canceled owner stranded", claimed, e)
 	}
 }
+
+// An uncategorized book is classified once among its format's routes before
+// placement; an answer outside the configured names keeps the default route.
+func TestPlacementCategoryClassifiesOnce(t *testing.T) {
+	r := runtimeTest(t, filepath.Join(t.TempDir(), "jobs.db"))
+	l := claimTest(t, r, "Self-Help")
+	r.ConfigureRoute(ctx, "fiction", "ebook", "kavita", "1", t.TempDir())
+	r.ConfigureRoute(ctx, "nonfiction", "ebook", "kavita", "3", t.TempDir())
+	calls := 0
+	answer := "nonfiction"
+	r.ClassifyCategory = func(_ context.Context, in Input, format string, options []string) string {
+		calls++
+		if format != "ebook" || len(options) != 2 || options[0] != "fiction" {
+			t.Fatalf("options %v for %s", options, format)
+		}
+		return answer
+	}
+	if got := r.placementCategory(ctx, l, Input{Title: "Self-Help"}, "ebook"); got != "nonfiction" {
+		t.Fatal(got)
+	}
+	answer = "fiction"
+	if got := r.placementCategory(ctx, l, Input{Title: "Self-Help"}, "ebook"); got != "nonfiction" || calls != 1 {
+		t.Fatal("stored category not reused", got, calls)
+	}
+	other := claimTest(t, r, "Other")
+	answer = "poetry"
+	if got := r.placementCategory(ctx, other, Input{Title: "Other"}, "ebook"); got != "" {
+		t.Fatal("unconfigured category accepted", got)
+	}
+}

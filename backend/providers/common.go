@@ -134,6 +134,12 @@ func Rank(in jobs.Input, format string, candidates []jobs.Candidate) []jobs.Cand
 		if in.Volume != "" && !coversVolume(c.Volume, in.Volume) {
 			continue
 		}
+		// Without an author nothing else anchors identity, so the requested
+		// title must appear as a phrase: "A Field Guide to Bird Calls" shares
+		// most of its words with an unrelated regional bird guide.
+		if in.Author == "" && !titlePhrase(in.Title, c.Title) {
+			continue
+		}
 		good = append(good, c)
 	}
 	// Like the ebook search, an unconstrained request prefers English but still
@@ -145,6 +151,20 @@ func Rank(in jobs.Input, format string, candidates []jobs.Candidate) []jobs.Cand
 		a, b := good[i], good[j]
 		if foreign(a) != foreign(b) {
 			return !foreign(a)
+		}
+		if va, vb := unwantedVariant(in, a), unwantedVariant(in, b); va != vb {
+			return !va
+		}
+		// Among releases likely to complete, the better container wins over a
+		// larger swarm: a 600-seed M4B beats an 800-seed MP3 that would need a
+		// lossy conversion. A thin swarm still yields to a healthy one.
+		if healthy(a) != healthy(b) {
+			return healthy(a)
+		}
+		if healthy(a) {
+			if ra, rb := containerRank(format, a.Extension), containerRank(format, b.Extension); ra != rb {
+				return ra < rb
+			}
 		}
 		if a.Seeders != nil && b.Seeders != nil && *a.Seeders != *b.Seeders {
 			return *a.Seeders > *b.Seeders
@@ -159,6 +179,60 @@ func Rank(in jobs.Input, format string, candidates []jobs.Candidate) []jobs.Cand
 	})
 	return good
 }
+
+// healthySeeders is the swarm size below which a torrent may stall.
+const healthySeeders = 10
+
+// healthy reports whether a release is likely to complete. Direct sources
+// report no seeders and are always available.
+func healthy(c jobs.Candidate) bool {
+	return c.Seeders == nil || *c.Seeders >= healthySeeders
+}
+
+// containerRank orders containers within a format, best first.
+func containerRank(format, extension string) int {
+	order := map[string][]string{
+		"audio": {"m4b", "m4a", "aac", "mp3", "flac", "opus", "ogg"},
+		"ebook": {"epub", "azw3", "mobi", "pdf"},
+		"manga": {"cbz", "cbr", "epub", "pdf"},
+	}[format]
+	ext := strings.ToLower(strings.TrimPrefix(extension, "."))
+	for i, v := range order {
+		if v == ext {
+			return i
+		}
+	}
+	return len(order)
+}
+
+var variantPattern = regexp.MustCompile(`(?i)\b(abridged|young readers|adapted for|summary|study guide|sparknotes|cliffsnotes|workbook|dramati[sz](?:ed|ation)|radio (?:play|drama)|full[- ]cast)\b`)
+
+// unwantedVariant marks abridged, adapted, dramatized and companion editions
+// the request did not ask for. "Unabridged" does not match.
+func unwantedVariant(in jobs.Input, c jobs.Candidate) bool {
+	found := variantPattern.FindString(c.Title + " " + c.Edition)
+	if found == "" {
+		return false
+	}
+	return !strings.Contains(strings.ToLower(in.Title+" "+in.Constraints.Edition), strings.ToLower(found))
+}
+
+// titlePhrase reports whether the requested title (before any subtitle,
+// without a leading article) appears word for word in the candidate title.
+func titlePhrase(requested, candidate string) bool {
+	norm := func(s string) string {
+		return " " + strings.Join(words.FindAllString(strings.ToLower(s), -1), " ") + " "
+	}
+	want := norm(strings.SplitN(requested, ":", 2)[0])
+	for _, article := range []string{" the ", " a ", " an "} {
+		if rest := strings.TrimPrefix(want, article); rest != want && strings.TrimSpace(rest) != "" {
+			want = " " + rest
+			break
+		}
+	}
+	return strings.TrimSpace(want) != "" && strings.Contains(norm(candidate), want)
+}
+
 func shortTitleMatches(in jobs.Input, candidate jobs.Candidate) bool {
 	ignored := map[string]bool{"the": true, "a": true, "an": true, "of": true, "and": true, "by": true, "read": true, "narrated": true, "audiobook": true, "audiobooks": true, "audio": true, "book": true, "unabridged": true, "abridged": true, "english": true, "complete": true, "uncut": true, "m4b": true, "mp3": true, "m4a": true, "flac": true, "epub": true, "pdf": true, "cbz": true, "cbr": true}
 	wanted := tokens(strings.SplitN(in.Title, ":", 2)[0])
@@ -189,7 +263,8 @@ func shortTitleMatches(in jobs.Input, candidate jobs.Candidate) bool {
 	return true
 }
 
-var volumePattern = regexp.MustCompile(`(?i)(?:\bvol(?:ume)?\.?\s*|\bv\.?\s*)(\d+(?:\.\d+)?)(?:\s*[-–]\s*(?:v(?:ol(?:ume)?)?\.?\s*)?(\d+(?:\.\d+)?))?`)
+// volumePattern reads "Vol. 3", "v03", "Vol. 1-9", "v01-v09" and "Volumes 1 to 13".
+var volumePattern = regexp.MustCompile(`(?i)(?:\bvol(?:ume)?s?\.?\s*|\bv\.?\s*)(\d+(?:\.\d+)?)(?:\s*(?:[-–~]|\bto\b)\s*(?:v(?:ol(?:ume)?s?)?\.?\s*)?(\d+(?:\.\d+)?))?`)
 
 func volumeCoverage(title string) string {
 	matches := volumePattern.FindAllStringSubmatch(title, -1)

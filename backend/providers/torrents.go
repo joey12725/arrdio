@@ -3,6 +3,8 @@ package providers
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,10 +12,12 @@ import (
 	"golang.org/x/net/html"
 	stdhtml "html"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -30,6 +34,15 @@ type Category struct {
 type Prowlarr struct {
 	URL, Key string
 	Torrent  *Torrent
+	mu       sync.Mutex
+	fetched  map[string]fetchedTorrent
+}
+
+// fetchedTorrent keeps a .torrent between Prepare and Acquire so a private
+// tracker records one grab per release rather than two.
+type fetchedTorrent struct {
+	data []byte
+	at   time.Time
 }
 
 func (p *Prowlarr) Name() string { return "prowlarr" }
@@ -64,18 +77,48 @@ func (p *Prowlarr) Search(ctx context.Context, in jobs.Input, format string) ([]
 	if format == "ebook" || p.URL == "" {
 		return nil, nil
 	}
-	var indexers []struct {
-		ID           int    `json:"id"`
-		Name         string `json:"name"`
-		Enable       bool   `json:"enable"`
-		Capabilities struct {
-			Categories []Category `json:"categories"`
-		} `json:"capabilities"`
-	}
+	var indexers []prowlarrIndexer
 	headers := map[string]string{"X-Api-Key": p.Key}
 	if e := jsonCall(ctx, Client, "GET", p.URL+"/api/v1/indexer", nil, headers, &indexers); e != nil {
 		return nil, e
 	}
+	// Indexers match words literally: a subtitle written with a straight
+	// apostrophe misses a release titled "Winter’s End". When the full title
+	// finds nothing usable, the main title (before the colon) is tried.
+	// Every query word must match, so only the first of several credited
+	// authors is sent ("Haruto Kimura and Sora Ito" found nothing; the
+	// release says "Haruto Kimura, Sora Ito"). Ranking still uses all.
+	author := primaryAuthor(in.Author)
+	queries := []string{strings.Join(strings.Fields(in.Title+" "+author+" "+in.Volume), " ")}
+	if base, _, ok := strings.Cut(in.Title, ":"); ok && strings.TrimSpace(base) != "" {
+		queries = append(queries, strings.Join(strings.Fields(base+" "+author+" "+in.Volume), " "))
+	}
+	for _, query := range queries {
+		ranked := p.search(ctx, indexers, headers, query, in, format)
+		if len(ranked) > 0 {
+			return ranked, nil
+		}
+	}
+	return []jobs.Candidate{}, nil
+}
+
+var authorSeparator = regexp.MustCompile(`(?i)\s*(?:,|;|&|\band\b|\bwith\b)\s*`)
+
+// primaryAuthor is the first credited author of a combined credit.
+func primaryAuthor(author string) string {
+	return strings.TrimSpace(authorSeparator.Split(author, 2)[0])
+}
+
+type prowlarrIndexer struct {
+	ID           int    `json:"id"`
+	Name         string `json:"name"`
+	Enable       bool   `json:"enable"`
+	Capabilities struct {
+		Categories []Category `json:"categories"`
+	} `json:"capabilities"`
+}
+
+func (p *Prowlarr) search(ctx context.Context, indexers []prowlarrIndexer, headers map[string]string, query string, in jobs.Input, format string) []jobs.Candidate {
 	out := []jobs.Candidate{}
 	for _, indexer := range indexers {
 		if !indexer.Enable {
@@ -85,7 +128,7 @@ func (p *Prowlarr) Search(ctx context.Context, in jobs.Input, format string) ([]
 		if len(cats) == 0 {
 			continue
 		}
-		q := url.Values{"query": {strings.TrimSpace(in.Title + " " + in.Author + " " + in.Volume)}, "type": {"search"}, "indexerIds": {strconv.Itoa(indexer.ID)}}
+		q := url.Values{"query": {query}, "type": {"search"}, "indexerIds": {strconv.Itoa(indexer.ID)}}
 		for _, id := range cats {
 			q.Add("categories", strconv.Itoa(id))
 		}
@@ -114,19 +157,156 @@ func (p *Prowlarr) Search(ctx context.Context, in jobs.Input, format string) ([]
 			out = append(out, jobs.Candidate{ID: v.GUID, Provider: p.Name(), Title: v.Title, Author: author, Language: language, Extension: extension, Format: format, Volume: volumeCoverage(v.Title), Seeders: v.Seeders, URL: link, Extra: extra})
 		}
 	}
-	return Rank(in, format, out), nil
+	return Rank(in, format, out)
 }
 func (p *Prowlarr) Acquire(ctx context.Context, c jobs.Candidate, d string) (jobs.Receipt, error) {
 	if p.Torrent == nil {
 		return jobs.Receipt{}, errors.New("torrent client not configured")
 	}
-	return p.Torrent.Add(ctx, c, d)
+	c, file, e := p.resolve(ctx, c)
+	if e != nil {
+		return jobs.Receipt{}, jobs.SafeFailure{Err: e}
+	}
+	return p.Torrent.add(ctx, c, d, file)
 }
 func (p *Prowlarr) Prepare(ctx context.Context, c jobs.Candidate, d string) (jobs.Receipt, error) {
 	if p.Torrent == nil {
 		return jobs.Receipt{}, errors.New("torrent client not configured")
 	}
+	c, _, e := p.resolve(ctx, c)
+	if e != nil {
+		return jobs.Receipt{}, e
+	}
 	return p.Torrent.Prepare(ctx, c, d)
+}
+
+var prowlarrDownloadPath = regexp.MustCompile(`(^|/)\d+/download$`)
+
+// resolve gives a candidate a stable infohash before any client effect. Private
+// indexers such as MyAnonamouse expose neither a hash nor a magnet, only
+// Prowlarr's download proxy, which a VPN-namespaced client may not reach. The
+// .torrent is fetched from Prowlarr's own origin (so its API key goes nowhere
+// else) and returned for upload; a redirect to a magnet is used as the link.
+func (p *Prowlarr) resolve(ctx context.Context, c jobs.Candidate) (jobs.Candidate, []byte, error) {
+	extra := map[string]string{}
+	json.Unmarshal(c.Extra, &extra)
+	if hashPattern.MatchString(extra["hash"]) || strings.HasPrefix(c.URL, "magnet:") {
+		return c, nil, nil
+	}
+	link, e := url.Parse(c.URL)
+	base, be := url.Parse(p.URL)
+	if e != nil || be != nil || !prowlarrDownloadPath.MatchString(link.Path) {
+		return c, nil, errors.New("release has no infohash or Prowlarr download link")
+	}
+	link.Scheme, link.Host, link.User = base.Scheme, base.Host, nil
+	p.mu.Lock()
+	cached, ok := p.fetched[link.String()]
+	p.mu.Unlock()
+	if ok && time.Since(cached.at) < 10*time.Minute {
+		if hash, e := infoHash(cached.data); e == nil {
+			extra["hash"] = hash
+			c.Extra, _ = json.Marshal(extra)
+			return c, cached.data, nil
+		}
+	}
+	client := &http.Client{Timeout: 45 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	req, _ := http.NewRequestWithContext(ctx, "GET", link.String(), nil)
+	req.Header.Set("X-Api-Key", p.Key)
+	resp, e := client.Do(req)
+	if e != nil {
+		return c, nil, errors.New("torrent file unavailable")
+	}
+	defer resp.Body.Close()
+	if location := resp.Header.Get("Location"); resp.StatusCode >= 300 && resp.StatusCode < 400 && strings.HasPrefix(location, "magnet:") {
+		c.URL = location
+		return c, nil, nil
+	}
+	if resp.StatusCode != 200 {
+		return c, nil, HTTPStatusError{Code: resp.StatusCode}
+	}
+	data, e := io.ReadAll(io.LimitReader(resp.Body, 10<<20+1))
+	if e != nil || len(data) > 10<<20 {
+		return c, nil, errors.New("torrent file unavailable")
+	}
+	hash, e := infoHash(data)
+	if e != nil {
+		return c, nil, e
+	}
+	extra["hash"] = hash
+	c.Extra, _ = json.Marshal(extra)
+	p.mu.Lock()
+	if p.fetched == nil || len(p.fetched) > 64 {
+		p.fetched = map[string]fetchedTorrent{}
+	}
+	p.fetched[link.String()] = fetchedTorrent{data, time.Now()}
+	p.mu.Unlock()
+	return c, data, nil
+}
+
+// infoHash is the SHA-1 of the raw bencoded info dictionary of a v1 torrent.
+func infoHash(data []byte) (string, error) {
+	invalid := errors.New("invalid torrent file")
+	if len(data) == 0 || data[0] != 'd' {
+		return "", invalid
+	}
+	for i := 1; i < len(data) && data[i] != 'e'; {
+		keyEnd, e := bencodeEnd(data, i)
+		if e != nil || data[i] < '0' || data[i] > '9' {
+			return "", invalid
+		}
+		key := data[bytes.IndexByte(data[i:keyEnd], ':')+i+1 : keyEnd]
+		valueEnd, e := bencodeEnd(data, keyEnd)
+		if e != nil {
+			return "", invalid
+		}
+		if string(key) == "info" && data[keyEnd] == 'd' {
+			sum := sha1.Sum(data[keyEnd:valueEnd])
+			return hex.EncodeToString(sum[:]), nil
+		}
+		i = valueEnd
+	}
+	return "", invalid
+}
+
+// bencodeEnd returns the index just past the bencoded value starting at i.
+func bencodeEnd(data []byte, i int) (int, error) {
+	invalid := errors.New("invalid bencoding")
+	for depth, start := 0, i; i < len(data); {
+		switch c := data[i]; {
+		case c == 'i':
+			end := bytes.IndexByte(data[i:], 'e')
+			if end < 0 {
+				return 0, invalid
+			}
+			i += end + 1
+		case c == 'l' || c == 'd':
+			depth++
+			i++
+			continue
+		case c == 'e':
+			if depth == 0 {
+				return 0, invalid
+			}
+			depth--
+			i++
+		case c >= '0' && c <= '9':
+			colon := bytes.IndexByte(data[i:], ':')
+			if colon < 0 {
+				return 0, invalid
+			}
+			n, e := strconv.Atoi(string(data[i : i+colon]))
+			if e != nil || n < 0 || i+colon+1+n > len(data) {
+				return 0, invalid
+			}
+			i += colon + 1 + n
+		default:
+			return 0, invalid
+		}
+		if depth == 0 && i > start {
+			return i, nil
+		}
+	}
+	return 0, invalid
 }
 func (p *Prowlarr) Reconcile(ctx context.Context, r jobs.Receipt) (jobs.Receipt, error) {
 	return p.Torrent.Poll(ctx, r)
@@ -135,9 +315,14 @@ func (p *Prowlarr) Reconcile(ctx context.Context, r jobs.Receipt) (jobs.Receipt,
 type Torrent struct {
 	URL, Username, Password, Category string
 	DownloadRoot                      string
-	Instance                          string
-	client                            *http.Client
-	mu                                sync.Mutex
+	// ClientRoot is the client's own path for DownloadRoot (e.g. "/downloads").
+	// When set, files resolve from the torrent's reported save or incomplete
+	// path, so partially selected packs left in the incomplete folder are found.
+	// When empty, DownloadRoot is the category save path.
+	ClientRoot string
+	Instance   string
+	client     *http.Client
+	mu         sync.Mutex
 }
 
 func (t *Torrent) login(ctx context.Context) error {
@@ -160,9 +345,19 @@ func (t *Torrent) login(ctx context.Context) error {
 	return nil
 }
 
+// torrentStall is how long a stalled download may go without any data before
+// its release is abandoned for another candidate.
+var torrentStall = 4 * time.Hour
+
 var hashPattern = regexp.MustCompile(`^[a-fA-F0-9]{40}$`)
 
 func (t *Torrent) Add(ctx context.Context, c jobs.Candidate, d string) (jobs.Receipt, error) {
+	return t.add(ctx, c, d, nil)
+}
+
+// add submits a magnet/URL, or the given .torrent bytes when a release has no
+// link the client can fetch itself.
+func (t *Torrent) add(ctx context.Context, c jobs.Candidate, d string, file []byte) (jobs.Receipt, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	r, e := t.Prepare(ctx, c, d)
@@ -201,8 +396,24 @@ func (t *Torrent) Add(ctx context.Context, c jobs.Candidate, d string) (jobs.Rec
 		form.Set("stopped", "false")
 		form.Set("stopCondition", "MetadataReceived")
 	}
-	req, _ := http.NewRequestWithContext(ctx, "POST", t.URL+"/api/v2/torrents/add", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	var body io.Reader = strings.NewReader(form.Encode())
+	contentType := "application/x-www-form-urlencoded"
+	if file != nil {
+		var buffer bytes.Buffer
+		parts := multipart.NewWriter(&buffer)
+		form.Del("urls")
+		for k, values := range form {
+			for _, v := range values {
+				parts.WriteField(k, v)
+			}
+		}
+		part, _ := parts.CreateFormFile("torrents", hash+".torrent")
+		part.Write(file)
+		parts.Close()
+		body, contentType = &buffer, parts.FormDataContentType()
+	}
+	req, _ := http.NewRequestWithContext(ctx, "POST", t.URL+"/api/v2/torrents/add", body)
+	req.Header.Set("Content-Type", contentType)
 	resp, e := t.client.Do(req)
 	if e != nil {
 		return r, errors.New("torrent submission ambiguous")
@@ -232,6 +443,30 @@ func (t *Torrent) Prepare(ctx context.Context, c jobs.Candidate, d string) (jobs
 	}
 	return jobs.Receipt{ID: hash, State: "transferring", Format: c.Format, Volume: extra["volume"], OwnerTag: "arrdio-" + t.Instance + "-" + filepath.Base(filepath.Dir(d)) + "-" + filepath.Base(d)}, nil
 }
+
+// localPath maps a torrent file to the payload mount. qBittorrent keeps a
+// partially selected torrent in its incomplete folder even after the wanted
+// files finish, so the base comes from where the content actually is.
+func (t *Torrent) localPath(content, save, incomplete, name string) (string, error) {
+	rel := name
+	if t.ClientRoot != "" {
+		base := save
+		if incomplete != "" && (content == incomplete || strings.HasPrefix(content, strings.TrimRight(incomplete, "/")+"/")) {
+			base = incomplete
+		}
+		root := strings.TrimRight(t.ClientRoot, "/") + "/"
+		full := pathpkg.Join(base, name)
+		if !strings.HasPrefix(full, root) {
+			return "", errors.New("torrent payload is outside the mounted client root")
+		}
+		rel = strings.TrimPrefix(full, root)
+	}
+	local := filepath.Join(t.DownloadRoot, filepath.FromSlash(rel))
+	if r, e := filepath.Rel(t.DownloadRoot, local); e != nil || r == ".." || strings.HasPrefix(r, "../") {
+		return "", errors.New("unsafe torrent path")
+	}
+	return local, nil
+}
 func (t *Torrent) Poll(ctx context.Context, r jobs.Receipt) (jobs.Receipt, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -242,16 +477,27 @@ func (t *Torrent) Poll(ctx context.Context, r jobs.Receipt) (jobs.Receipt, error
 		return r, e
 	}
 	var info []struct {
-		Progress    float64 `json:"progress"`
-		ContentPath string  `json:"content_path"`
-		State       string  `json:"state"`
-		Tags        string  `json:"tags"`
+		Progress     float64 `json:"progress"`
+		ContentPath  string  `json:"content_path"`
+		State        string  `json:"state"`
+		Tags         string  `json:"tags"`
+		AddedOn      int64   `json:"added_on"`
+		LastActivity int64   `json:"last_activity"`
+		SavePath     string  `json:"save_path"`
+		DownloadPath string  `json:"download_path"`
 	}
 	if e := jsonCall(ctx, t.client, "GET", t.URL+"/api/v2/torrents/info?hashes="+r.ID, nil, nil, &info); e != nil {
 		return r, e
 	}
 	if len(info) != 1 {
 		return r, jobs.ErrUnresolvedTransfer
+	}
+	// A swarm that never delivers would otherwise hold the request forever.
+	// The torrent is left in the client; the job moves to another candidate.
+	if v := info[0]; v.Progress < 1 && (v.State == "stalledDL" || v.State == "metaDL") {
+		if since := max(v.AddedOn, v.LastActivity); since > 0 && time.Since(time.Unix(since, 0)) > torrentStall {
+			return r, jobs.RetryTransferFailure{Err: errors.New("torrent made no progress; trying another release")}
+		}
 	}
 	r.State = "transferring"
 	if strings.HasPrefix(info[0].State, "paused") || strings.HasPrefix(info[0].State, "stopped") {
@@ -321,16 +567,15 @@ func (t *Torrent) Poll(ctx context.Context, r jobs.Receipt) (jobs.Receipt, error
 		if f.Progress < 1 {
 			return r, nil
 		}
-		path := filepath.Join(t.DownloadRoot, filepath.FromSlash(f.Name))
-		rel, e := filepath.Rel(t.DownloadRoot, path)
-		if e != nil || strings.HasPrefix(rel, "..") {
-			return r, errors.New("unsafe torrent path")
+		path, e := t.localPath(info[0].ContentPath, info[0].SavePath, info[0].DownloadPath, f.Name)
+		if e != nil {
+			return r, e
 		}
 		if st, e := os.Stat(path); e != nil || st.Size() == 0 {
-			return r, errors.New("completed payload not mounted")
+			return r, fmt.Errorf("%w: completed payload not mounted", jobs.ErrPayloadPending)
 		}
 		if st, e := os.Stat(path); e != nil || (f.Size > 0 && st.Size() != f.Size) {
-			return r, errors.New("torrent payload size mismatch")
+			return r, fmt.Errorf("%w: torrent payload size mismatch", jobs.ErrPayloadPending)
 		}
 		paths = append(paths, path)
 	}
@@ -364,7 +609,13 @@ type ABB struct {
 	mu         sync.Mutex
 	client     *http.Client
 	verifiedAt time.Time
+	details    map[string]abbDetail
 	Torrent    *Torrent
+}
+
+type abbDetail struct {
+	candidate *jobs.Candidate
+	at        time.Time
 }
 
 func (a *ABB) Name() string { return "abb" }
@@ -421,54 +672,89 @@ func (a *ABB) Search(ctx context.Context, in jobs.Input, format string) ([]jobs.
 	}
 	walk(doc)
 	for _, link := range links {
-		req, _ := http.NewRequestWithContext(ctx, "GET", link, nil)
-		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; ARRDIO/2.0)")
-		if a.Cookie != "" {
-			req.Header.Set("Cookie", a.Cookie)
+		if c := a.detail(ctx, client, link); c != nil {
+			out = append(out, *c)
 		}
-		res, e := client.Do(req)
-		if e != nil {
-			continue
-		}
-		data, _ := io.ReadAll(io.LimitReader(res.Body, 4<<20))
-		res.Body.Close()
-		parsed, e := html.Parse(bytes.NewReader(data))
-		if e != nil {
-			continue
-		}
-		text := htmlText(parsed)
-		m := regexp.MustCompile(`(?i)info\s*hash\s*:?\s*([a-f0-9]{40})`).FindStringSubmatch(text)
-		if m == nil {
-			raw := regexp.MustCompile(`(?i)urn:btih:([a-f0-9]{40})`).FindSubmatch(data)
-			if raw != nil {
-				m = []string{string(raw[0]), string(raw[1])}
-			}
-		}
-		if m == nil {
-			continue
-		}
-		hash := strings.ToLower(m[1])
-		title := in.Title // Search page constrains query; title must still be confirmed from detail.
-		tm := regexp.MustCompile(`(?is)<title>(.*?)</title>`).FindSubmatch(data)
-		if tm == nil {
-			continue
-		}
-		title = stdhtml.UnescapeString(string(tm[1]))
-		author := abbField(text, `(?i)Written\s+by\s*:?[\s]*(.+?)\s+(?:Read\s+by|Narrated\s+by|Format\s*:)`)
-		language := abbField(text, `(?i)Language\s*:\s*(.+?)\s+(?:Keywords\s*:|Shared\s+by\s*:)`)
-		extension := strings.ToLower(abbField(text, `(?i)Format\s*:\s*(M4B|MP3|M4A|FLAC|AAC|OGG|OPUS)\b`))
-		narrator := abbField(text, `(?i)(?:Read|Narrated)\s+by\s*:?\s*(.+?)\s+(?:Format\s*:|Bitrate\s*:)`)
-		edition := ""
-		if regexp.MustCompile(`(?i)\bUnabridged\b`).MatchString(text) {
-			edition = "unabridged"
-		} else if regexp.MustCompile(`(?i)\bAbridged\b`).MatchString(text) {
-			edition = "abridged"
-		}
-		extra, _ := json.Marshal(map[string]string{"hash": hash})
-		out = append(out, jobs.Candidate{ID: hash, Provider: a.Name(), Title: title, Author: author, Language: language, Narrator: narrator, Edition: edition, Extension: extension, Format: "audio", URL: "magnet:?xt=urn:btih:" + hash, Extra: extra})
 	}
 	return Rank(in, format, out), nil
 }
+
+// detail parses one ABB release page. Parsed pages are cached for six hours so
+// repeated searches do not refetch them; bursts of these requests got a client
+// IP blocked by ABB during live testing.
+func (a *ABB) detail(ctx context.Context, client *http.Client, link string) *jobs.Candidate {
+	a.mu.Lock()
+	if cached, ok := a.details[link]; ok && time.Since(cached.at) < 6*time.Hour {
+		a.mu.Unlock()
+		return cached.candidate
+	}
+	a.mu.Unlock()
+	c, definitive := a.parseDetail(ctx, client, link)
+	if !definitive {
+		return c
+	}
+	a.mu.Lock()
+	if a.details == nil || len(a.details) > 2000 {
+		a.details = map[string]abbDetail{}
+	}
+	a.details[link] = abbDetail{c, time.Now()}
+	a.mu.Unlock()
+	return c
+}
+
+// parseDetail reports definitive=false for transport or HTTP failures, which
+// must not be cached as "no release".
+func (a *ABB) parseDetail(ctx context.Context, client *http.Client, link string) (*jobs.Candidate, bool) {
+	req, _ := http.NewRequestWithContext(ctx, "GET", link, nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; ARRDIO/2.0)")
+	if a.Cookie != "" {
+		req.Header.Set("Cookie", a.Cookie)
+	}
+	res, e := client.Do(req)
+	if e != nil {
+		return nil, false
+	}
+	data, e := io.ReadAll(io.LimitReader(res.Body, 4<<20))
+	res.Body.Close()
+	if e != nil || res.StatusCode != 200 {
+		return nil, false
+	}
+	parsed, e := html.Parse(bytes.NewReader(data))
+	if e != nil {
+		return nil, true
+	}
+	text := htmlText(parsed)
+	m := regexp.MustCompile(`(?i)info\s*hash\s*:?\s*([a-f0-9]{40})`).FindStringSubmatch(text)
+	if m == nil {
+		raw := regexp.MustCompile(`(?i)urn:btih:([a-f0-9]{40})`).FindSubmatch(data)
+		if raw != nil {
+			m = []string{string(raw[0]), string(raw[1])}
+		}
+	}
+	if m == nil {
+		return nil, true
+	}
+	hash := strings.ToLower(m[1])
+	title := "" // Confirmed from the detail page, never assumed from the query.
+	tm := regexp.MustCompile(`(?is)<title>(.*?)</title>`).FindSubmatch(data)
+	if tm == nil {
+		return nil, true
+	}
+	title = stdhtml.UnescapeString(string(tm[1]))
+	author := abbField(text, `(?i)Written\s+by\s*:?[\s]*(.+?)\s+(?:Read\s+by|Narrated\s+by|Format\s*:)`)
+	language := abbField(text, `(?i)Language\s*:\s*(.+?)\s+(?:Keywords\s*:|Shared\s+by\s*:)`)
+	extension := strings.ToLower(abbField(text, `(?i)Format\s*:\s*(M4B|MP3|M4A|FLAC|AAC|OGG|OPUS)\b`))
+	narrator := abbField(text, `(?i)(?:Read|Narrated)\s+by\s*:?\s*(.+?)\s+(?:Format\s*:|Bitrate\s*:)`)
+	edition := ""
+	if regexp.MustCompile(`(?i)\bUnabridged\b`).MatchString(text) {
+		edition = "unabridged"
+	} else if regexp.MustCompile(`(?i)\bAbridged\b`).MatchString(text) {
+		edition = "abridged"
+	}
+	extra, _ := json.Marshal(map[string]string{"hash": hash})
+	return &jobs.Candidate{ID: hash, Provider: a.Name(), Title: title, Author: author, Language: language, Narrator: narrator, Edition: edition, Extension: extension, Format: "audio", URL: "magnet:?xt=urn:btih:" + hash, Extra: extra}, true
+}
+
 func abbField(text, pattern string) string {
 	match := regexp.MustCompile(pattern).FindStringSubmatch(text)
 	if len(match) < 2 {

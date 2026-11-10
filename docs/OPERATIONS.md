@@ -33,9 +33,10 @@ tags are refused, because the previous production compose pulls them.
    The existing Authentik values and `NUXT_OIDC_PROVIDERS_OIDC_*` names work as-is;
    the callback stays `/api/auth/authentik`.
 4. Give qBittorrent a dedicated category (for example `arrdio`) whose save path is
-   **outside** every library, and mount that same host folder read-only as the
-   torrent payload. A category that saves straight into a library would leave the
-   seeding payload and ARRDIO's imported copy side by side.
+   **outside** every library. Mount the client's whole download root read-only
+   as the torrent payload, with `QBITTORRENT_PATH` set to the client's path for
+   it. A category that saves straight into a library would leave the seeding
+   payload and ARRDIO's imported copy side by side.
 5. Write `routes.json` with container paths under the library mounts. Set
    `ARRDIO_WEB_BIND`/`ARRDIO_WEB_PORT` to the address the reverse proxy already
    targets, and `ARRDIO_PUBLIC_URL` to `https://<public host>/agent`. Start with
@@ -68,6 +69,7 @@ account pages redirect to Settings, which has no remove-account operation.
 | `ARRDIO_STAGING` | Persistent staging directory; defaults beside the database |
 | `ARRDIO_WORKERS` | Explicit `true` to dispatch; default paused |
 | `ARRDIO_ROUTES_FILE` | Operator-approved routing JSON, outside source control |
+| `ARRDIO_ROUTES` | Alternative: the same routing JSON inline (the file wins when both are set) |
 
 Nuxt needs `NUXT_ARRDIO_BASE`, `NUXT_ARRDIO_GATEWAY_TOKEN`, a persistent
 `NUXT_SESSION_PASSWORD`, and its existing `NUXT_OAUTH_AUTHENTIK_*` values.
@@ -94,16 +96,28 @@ shared media folders usually need their own owner (99:100 on Unraid).
   may reuse a session, but that cache is bound to the verified credential digest.
 - `PROWLARR_URL`, `PROWLARR_API_KEY`: discover enabled indexer/category capabilities.
 - `QBITTORRENT_URL`, `QBITTORRENT_USERNAME`, `QBITTORRENT_PASSWORD`,
-  `QBITTORRENT_CATEGORY`, `ARRDIO_TORRENT_ROOT`: existing client, category and
-  readable payload mount. Torrents are added in automatic management mode, so the
-  category's save path decides where payloads land; `ARRDIO_TORRENT_ROOT` must be
-  that folder as mounted in the API container. No VPN, tracker, seed-limit or
+  `QBITTORRENT_CATEGORY`, `ARRDIO_TORRENT_ROOT`, `QBITTORRENT_PATH`: existing
+  client, category and read-only payload mount. Torrents are added in automatic
+  management mode, so the category's save path decides where payloads land.
+  Mount the client's whole download root at `ARRDIO_TORRENT_ROOT` and set
+  `QBITTORRENT_PATH` to the client's own path for it (e.g. `/downloads`): files
+  are then found wherever the client reports them, including its incomplete
+  folder, where qBittorrent keeps a partially selected pack (one manga volume).
+  Without `QBITTORRENT_PATH`, `ARRDIO_TORRENT_ROOT` must be the category save path
+  and partial packs are not supported. A download that stalls for four hours is
+  abandoned for the next candidate; the torrent itself is left in the client. No VPN, tracker, seed-limit or
   shared client settings are changed. New volume-specific jobs are paused until
   file selection is set; existing torrent selections are not rewritten.
 - Prowlarr release titles in the `Title by Author [LANG / FORMAT]` form (used by
   MyAnonamouse) supply author, language and container facts. Untagged releases
   stay unknown. Without a language requirement, English releases rank first and
-  other languages remain eligible.
+  other languages remain eligible. Searches send only the first credited author;
+  a subtitled title that finds nothing is retried with its main title.
+- Selection, in order: the requested work (abridged, adapted, summary and
+  dramatized editions rank last unless requested; a request without an author
+  must contain the title as a phrase), then quality among releases with at least
+  10 seeders (M4B over M4A over MP3, EPUB over PDF, CBZ over CBR), then seeders.
+  The decision model gets the same policy and chooses among those candidates.
 - `ABB_URL`: operator-configured source origin; HTML failures stay provider-local.
 - `ABB_USERNAME`, `ABB_PASSWORD`: authenticated member login/profile verification;
   use these instead of a manually copied short-lived cookie. Legacy `ABB_COOKIE`
@@ -124,14 +138,23 @@ shared media folders usually need their own owner (99:100 on Unraid).
 - `OPENROUTER_API_KEY`, `OPENROUTER_URL`, `OPENROUTER_MODEL`: configured OpenRouter
   decision route, default `typesafe/jev-router`. This is a routing model plus a
   downstream generator, not the direct TypeSafe Decisions API. The effective model
-  is reported; invalid responses/timeouts fall back without caching failure. Photo
-  extraction remains on CLIProxyAPI.
+  is reported; invalid responses/timeouts fall back without caching failure.
+- Photo extraction uses CLIProxyAPI when `CLIPROXY_URL`/`CLIPROXY_KEY` are set.
+  Without them it sends the same standard `gpt-6-luna` request through the
+  OpenRouter key as `openai/gpt-6-luna`, for deployments where the proxy is not on
+  the application's network. Settings shows which route is active.
 
 Routing JSON is an array of `{category,format,service,library_id,path}`. Allowed
 formats are ebook/audio/manga; services are kavita/audiobookshelf. Paths must be
 absolute and writable. Put the approved default for each format first. Users do
 not choose paths; agents may assign only configured category names. A category
 applies to its compatible representation, not both children indiscriminately.
+
+Placed files follow the libraries' conventions: ebooks as
+`Author/Title/Title (Author).epub`, manga as `Series/Series v01.cbz`, a single-file
+audiobook as `Author/Title/Title.m4b` (multi-file sets keep numbered source names).
+Kavita names PDF and comic series from the file name, which readback matches.
+Partial copies and conversions left by a restart are removed on the next attempt.
 
 The optional `/refresh` operation invokes supported library scan APIs. Import
 readback remains authoritative: accepted scans and local files are not reported

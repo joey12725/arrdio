@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ashkaty/arrdio-api/jobs"
+	"net/http"
 	"net/url"
 	"os"
 	"path"
@@ -50,12 +51,41 @@ func (s *Soulseek) Search(ctx context.Context, in jobs.Input, format string) ([]
 	if search.ID == "" {
 		return nil, errors.New("slskd search receipt absent")
 	}
-	timer := time.NewTimer(10 * time.Second)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-timer.C:
+	// slskd returns no responses until a search completes, so wait for its
+	// state rather than a fixed delay (a fixed 10 s read returned nothing live).
+	// A search still running at the deadline is stopped, which completes it and
+	// releases the responses gathered so far.
+	stopped := false
+	for deadline := time.Now().Add(slskdSearchWindow); ; {
+		timer := time.NewTimer(slskdPoll)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+		var status struct {
+			State string `json:"state"`
+		}
+		if e := jsonCall(ctx, Client, "GET", s.URL+"/api/v0/searches/"+escape(search.ID), nil, s.headers(), &status); e != nil {
+			return nil, e
+		}
+		if strings.Contains(status.State, "Completed") {
+			break
+		}
+		if time.Now().After(deadline) {
+			if stopped {
+				break
+			}
+			stopped = true
+			req, _ := http.NewRequestWithContext(ctx, "PUT", s.URL+"/api/v0/searches/"+escape(search.ID), nil)
+			for k, v := range s.headers() {
+				req.Header.Set(k, v)
+			}
+			if resp, e := Client.Do(req); e == nil {
+				resp.Body.Close()
+			}
+		}
 	}
 	var responses []struct {
 		Username          string     `json:"username"`
@@ -135,6 +165,22 @@ func (s *Soulseek) directory(ctx context.Context, username, folder string) ([]pe
 	}
 	return out, nil
 }
+
+// slskdPoll is the interval between search status checks; slskdSearchWindow is
+// how long a search may run before it is stopped and its responses are read.
+var (
+	slskdPoll         = 2 * time.Second
+	slskdSearchWindow = 15 * time.Second
+)
+
+var digitGroup = regexp.MustCompile(`\d+`)
+
+// completeSet accepts a single M4B, or tracks whose numbers run exactly 1..N.
+// The track number may sit anywhere in the name ("01 - Chapter 1", "Dracula 10",
+// "Bram Stoker - Dracula 03-18"): it is the digit group, counted from the start
+// or the end of the name, whose values across the folder are 1..N. Constant
+// groups such as years or bitrates never form that run; sets whose numbering
+// restarts per disc are rejected rather than guessed.
 func completeSet(files []peerFile) bool {
 	if len(files) == 1 {
 		return strings.EqualFold(filepath.Ext(files[0].Filename), ".m4b")
@@ -142,26 +188,38 @@ func completeSet(files []peerFile) bool {
 	if len(files) < 2 {
 		return false
 	}
-	numbers := map[int]bool{}
-	pattern := regexp.MustCompile(`(?i)^(?:chapter|track)?[ _.-]*(\d+)[ _.-]`)
-	for _, f := range files {
+	groups := make([][]int, len(files))
+	shortest := -1
+	for i, f := range files {
 		name := path.Base(strings.ReplaceAll(f.Filename, "\\", "/"))
-		m := pattern.FindStringSubmatch(name)
-		if m == nil {
-			return false
+		name = strings.TrimSuffix(name, path.Ext(name))
+		for _, g := range digitGroup.FindAllString(name, -1) {
+			n, _ := strconv.Atoi(g)
+			groups[i] = append(groups[i], n)
 		}
-		n, _ := strconv.Atoi(m[1])
-		if n < 1 || numbers[n] {
-			return false
-		}
-		numbers[n] = true
-	}
-	for i := 1; i <= len(files); i++ {
-		if !numbers[i] {
-			return false
+		if shortest < 0 || len(groups[i]) < shortest {
+			shortest = len(groups[i])
 		}
 	}
-	return true
+	for k := 0; k < shortest; k++ {
+		for _, fromEnd := range []bool{false, true} {
+			seen := map[int]bool{}
+			for _, g := range groups {
+				n := g[k]
+				if fromEnd {
+					n = g[len(g)-1-k]
+				}
+				if n < 1 || n > len(files) || seen[n] {
+					break
+				}
+				seen[n] = true
+			}
+			if len(seen) == len(files) {
+				return true
+			}
+		}
+	}
+	return false
 }
 func (s *Soulseek) Acquire(ctx context.Context, c jobs.Candidate, destination string) (jobs.Receipt, error) {
 	var set peerSet
@@ -267,17 +325,16 @@ func (s *Soulseek) Reconcile(ctx context.Context, r jobs.Receipt) (jobs.Receipt,
 			pending++
 			continue
 		}
-		name := strings.ReplaceAll(file.Filename, "\\", "/")
-		local := filepath.Join(s.DownloadRoot, filepath.FromSlash(name))
+		local := filepath.Join(s.DownloadRoot, filepath.FromSlash(peerLocalName(file.Filename)))
 		rel, e := filepath.Rel(s.DownloadRoot, local)
 		if e != nil || strings.HasPrefix(rel, "..") {
 			return r, fmt.Errorf("unsafe peer filename")
 		}
+		if info, e := os.Stat(local); e != nil || info.Size() != file.Size {
+			return r, fmt.Errorf("%w: peer payload missing or size mismatch", jobs.ErrPayloadPending)
+		}
 		if e = ValidateMedia(local); e != nil {
 			return r, e
-		}
-		if info, e := os.Stat(local); e != nil || info.Size() != file.Size {
-			return r, errors.New("peer payload size mismatch")
 		}
 		paths = append(paths, local)
 		completed = append(completed, jobs.RetainedFile{Identity: peerIdentity(set, file), Path: local, Size: file.Size})
@@ -294,6 +351,16 @@ func (s *Soulseek) Reconcile(ctx context.Context, r jobs.Receipt) (jobs.Receipt,
 	r.Paths = paths
 	r.State = "verified"
 	return r, nil
+}
+
+// peerLocalName is where slskd stores a completed download: the remote file's
+// immediate parent directory and its name, not the peer's full share path.
+func peerLocalName(remote string) string {
+	parts := strings.Split(strings.ReplaceAll(remote, "\\", "/"), "/")
+	if len(parts) < 2 {
+		return parts[0]
+	}
+	return parts[len(parts)-2] + "/" + parts[len(parts)-1]
 }
 func peerIdentity(set peerSet, file peerFile) string {
 	name := strings.ReplaceAll(file.Filename, "\\", "/")

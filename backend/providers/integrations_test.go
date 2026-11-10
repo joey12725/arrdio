@@ -102,8 +102,9 @@ func TestABBAuthenticatedSearchUsesRealTitleQueryAndParsedMetadata(t *testing.T)
 			t.Fatal(c)
 		}
 	}
-	if logins.Load() != 1 || details.Load() != 2 {
-		t.Fatal("session not reused or duplicate links fetched", logins.Load(), details.Load())
+	// One login, and the parsed detail page is reused by the second search.
+	if logins.Load() != 1 || details.Load() != 1 {
+		t.Fatal("session not reused or detail page refetched", logins.Load(), details.Load())
 	}
 }
 
@@ -162,6 +163,8 @@ func TestSoulseekFiltersWrongWorkBeforeSpendingDirectoryBudget(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/v0/searches":
 			w.Write([]byte(`{"id":"test-search"}`))
+		case "/api/v0/searches/test-search":
+			w.Write([]byte(`{"state":"Completed, TimedOut"}`))
 		case "/api/v0/searches/test-search/responses":
 			responses := []any{}
 			for i := 0; i < 8; i++ {

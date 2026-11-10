@@ -164,6 +164,14 @@ func NormalizeM4B(ctx context.Context, paths []string, destination, title, autho
 		fmt.Fprintf(&meta, "[CHAPTER]\nTIMEBASE=1/1000\nSTART=%d\nEND=%d\ntitle=Chapter %d\n", int64(total*1000), int64((total+duration)*1000), i+1)
 		total += duration
 	}
+	// An attempt killed mid-encode (restart, crash) skips the deferred cleanup;
+	// its partial output can be as large as the book. The job's lease makes
+	// this the only conversion in its staging folder, so leftovers are stale.
+	if stale, _ := filepath.Glob(filepath.Join(filepath.Dir(destination), ".arrdio-convert-*")); len(stale) > 0 {
+		for _, old := range stale {
+			os.RemoveAll(old)
+		}
+	}
 	dir, e := os.MkdirTemp(filepath.Dir(destination), ".arrdio-convert-")
 	if e != nil {
 		return "", e

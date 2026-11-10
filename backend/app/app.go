@@ -74,7 +74,7 @@ func Run() {
 	r.VerifyLocal = providers.VerifyRetained
 	r.VerifyArtifact = providers.VerifyArtifact
 	r.ModelStatus = models.Status
-	torrent := &providers.Torrent{URL: os.Getenv("QBITTORRENT_URL"), Username: os.Getenv("QBITTORRENT_USERNAME"), Password: os.Getenv("QBITTORRENT_PASSWORD"), Category: os.Getenv("QBITTORRENT_CATEGORY"), DownloadRoot: os.Getenv("ARRDIO_TORRENT_ROOT")}
+	torrent := &providers.Torrent{URL: os.Getenv("QBITTORRENT_URL"), Username: os.Getenv("QBITTORRENT_USERNAME"), Password: os.Getenv("QBITTORRENT_PASSWORD"), Category: os.Getenv("QBITTORRENT_CATEGORY"), DownloadRoot: os.Getenv("ARRDIO_TORRENT_ROOT"), ClientRoot: os.Getenv("QBITTORRENT_PATH")}
 	torrent.Instance = r.InstanceID
 	p := &providers.Prowlarr{URL: os.Getenv("PROWLARR_URL"), Key: os.Getenv("PROWLARR_API_KEY"), Torrent: torrent}
 	abb := &providers.ABB{URL: os.Getenv("ABB_URL"), Cookie: os.Getenv("ABB_COOKIE"), Torrent: torrent}
@@ -93,8 +93,12 @@ func Run() {
 	library.KavitaKey = os.Getenv("KAVITA_AUTH_KEY")
 	library.ABSPublicURL = os.Getenv("AUDIOBOOKSHELF_PUBLIC_URL")
 	library.KavitaPublicURL = os.Getenv("KAVITA_PUBLIC_URL")
-	if file := os.Getenv("ARRDIO_ROUTES_FILE"); file != "" {
-		routes, e := providers.LoadRoutes(file)
+	inline := os.Getenv("ARRDIO_ROUTES")
+	if file := os.Getenv("ARRDIO_ROUTES_FILE"); file != "" || inline != "" {
+		routes, e := providers.ParseRoutes([]byte(inline))
+		if file != "" {
+			routes, e = providers.LoadRoutes(file)
+		}
 		if e != nil {
 			log.Fatal("routing configuration invalid")
 		}

@@ -42,6 +42,10 @@ type FinalTransferFailure struct{ Err error }
 
 var ErrUnresolvedTransfer = errors.New("transfer outcome unresolved; existing intent retained")
 
+// ErrPayloadPending means the source finished but its files are not readable on
+// the payload mount yet. It concerns one job, never the provider's health.
+var ErrPayloadPending = errors.New("download complete; files not readable yet")
+
 func (e FinalTransferFailure) Error() string { return e.Err.Error() }
 func (e FinalTransferFailure) Unwrap() error { return e.Err }
 

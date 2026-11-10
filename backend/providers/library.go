@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 type Route struct {
@@ -370,9 +371,25 @@ func (l *Libraries) ValidateRoute(ctx context.Context, in jobs.Input, format, ca
 	}
 	return errors.New("no compatible route")
 }
+
+// safePart makes one path component. It keeps the punctuation the libraries
+// already use ("D. H. Lawrence", "Liam O'Flaherty", "Winter's End") and drops
+// separators and characters Windows/SMB clients cannot open. Leading dots
+// (hidden files, "..") and trailing dots are trimmed.
 func safePart(s string) string {
-	v := words.FindAllString(s, -1)
-	name := strings.Join(v, " ")
+	s = strings.NewReplacer("\u2019", "'", "\u2018", "'").Replace(s)
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) || strings.ContainsRune(".'-,&()!", r) {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune(' ')
+		}
+	}
+	name := strings.Trim(strings.Join(strings.Fields(b.String()), " "), ". ")
+	if !words.MatchString(name) {
+		name = ""
+	}
 	if name == "" {
 		name = "Unknown"
 	}
@@ -525,13 +542,33 @@ func (l *Libraries) Import(ctx context.Context, in jobs.Input, format string, pa
 	if e := jobs.CheckImport(ctx); e != nil {
 		return nil, e
 	}
-	folder, e := importFolder(route.Path, safePart(in.Author), safePart(in.Title+" "+in.Volume))
+	// Manga libraries group by series folder ("Manga/Green Hour/…"), books
+	// and audiobooks by author and title.
+	parts := []string{safePart(in.Author), safePart(in.Title + " " + in.Volume)}
+	if format == "manga" {
+		parts = []string{safePart(in.Title)}
+	}
+	folder, e := importFolder(route.Path, parts...)
 	if e != nil {
 		return nil, e
+	}
+	// A copy interrupted by a restart skips its deferred cleanup and leaves a
+	// hidden partial file in the library folder. The lane imports one job at
+	// a time, so any temp file here belongs to an earlier, dead attempt.
+	if stale, _ := filepath.Glob(filepath.Join(folder, ".arrdio-import-*")); len(stale) > 0 {
+		for _, old := range stale {
+			os.Remove(old)
+		}
 	}
 	ordered := append([]string(nil), paths...)
 	if hooks := jobs.GetImportHooks(ctx); hooks == nil || !hooks.Ordered {
 		sort.Slice(ordered, func(i, j int) bool { return naturalKey(ordered[i]) < naturalKey(ordered[j]) })
+	}
+	content := 0
+	for _, src := range ordered {
+		if (format == "audio" && audioFile(src)) || (format != "audio" && libraryExtension(src)) {
+			content++
+		}
 	}
 	imported := 0
 	destinations := map[string]bool{}
@@ -541,12 +578,12 @@ func (l *Libraries) Import(ctx context.Context, in jobs.Input, format string, pa
 		if format == "audio" && !audioFile(src) && !artwork {
 			continue
 		}
-		if format != "audio" && extension != ".epub" && extension != ".pdf" && extension != ".cbz" && extension != ".cbr" {
+		if format != "audio" && !libraryExtension(src) {
 			continue
 		}
 		name := safePart(strings.TrimSuffix(filepath.Base(src), filepath.Ext(src)))
-		if format == "audio" && !artwork {
-			name = fmt.Sprintf("%04d %s", index+1, name)
+		if !artwork {
+			name = libraryName(in, format, name, index, content)
 		}
 		dst := filepath.Join(folder, name+extension)
 		if e := copyVerifiedContext(ctx, src, dst); e != nil {
@@ -625,6 +662,42 @@ func (l *Libraries) Import(ctx context.Context, in jobs.Input, format string, pa
 	l.mu.Unlock()
 	return l.presence(ctx, in, format, route.Category)
 }
+func libraryExtension(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".epub", ".pdf", ".cbz", ".cbr":
+		return true
+	}
+	return false
+}
+
+// libraryName names a placed file the way the libraries read it. Kavita takes a
+// PDF's or comic's series from its file name, so "book.pdf" would never match
+// the request on readback. A single file is named for the request; multi-file
+// sets keep their source names (numbered, for audio track order).
+func libraryName(in jobs.Input, format, source string, index, count int) string {
+	if count > 1 {
+		if format == "audio" {
+			return fmt.Sprintf("%04d %s", index+1, source)
+		}
+		return source
+	}
+	switch format {
+	case "manga":
+		volume := in.Volume
+		if n, e := strconv.Atoi(volume); e == nil {
+			volume = fmt.Sprintf("%02d", n)
+		}
+		if volume == "" {
+			return safePart(in.Title)
+		}
+		return safePart(in.Title + " v" + volume)
+	case "ebook":
+		if strings.TrimSpace(in.Author) != "" {
+			return safePart(in.Title) + " (" + safePart(in.Author) + ")"
+		}
+	}
+	return safePart(in.Title)
+}
 func importFolder(root string, parts ...string) (string, error) {
 	if e := os.MkdirAll(root, 0777); e != nil {
 		return "", e
@@ -659,8 +732,13 @@ func LoadRoutes(path string) ([]Route, error) {
 	if e != nil {
 		return nil, e
 	}
+	return ParseRoutes(data)
+}
+
+// ParseRoutes validates operator routing JSON, from a file or ARRDIO_ROUTES.
+func ParseRoutes(data []byte) ([]Route, error) {
 	var routes []Route
-	e = json.Unmarshal(data, &routes)
+	e := json.Unmarshal(data, &routes)
 	if e != nil {
 		return nil, e
 	}

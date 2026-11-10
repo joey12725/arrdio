@@ -241,6 +241,48 @@ async function cancelSelected() {
     await control(id, "cancel", selectedFormat.value);
   selected.value = [];
 }
+function base64(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+// Phone cameras exceed the service's 24 MP / 10 MB limits (a default iPhone
+// photo is 24.5 MP). Larger photos are scaled to a 3072 px long edge, which
+// keeps spine text legible; photos already within limits are sent unchanged.
+async function photoPayload(file: File) {
+  const maxEdge = 3072;
+  // Desktop Chrome cannot decode HEIC (iPhone photos copied off the phone).
+  const bitmap = await createImageBitmap(file).catch(() => {
+    throw new Error("unreadable image");
+  });
+  const { width, height } = bitmap;
+  const supported = ["image/png", "image/jpeg", "image/webp"].includes(
+    file.type,
+  );
+  if (
+    supported &&
+    file.size <= 10 * 1024 * 1024 &&
+    width * height <= 24_000_000 &&
+    Math.max(width, height) <= 8192
+  ) {
+    bitmap.close();
+    return { mime: file.type, data: await base64(file) };
+  }
+  const scale = Math.min(1, maxEdge / Math.max(width, height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(width * scale);
+  canvas.height = Math.round(height * scale);
+  canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, "image/jpeg", 0.9),
+  );
+  if (!blob) throw new Error("photo could not be prepared");
+  return { mime: "image/jpeg", data: await base64(blob) };
+}
 async function upload(event: Event) {
   const importKind = kind.value;
   const importRequirements = { ...hard };
@@ -248,22 +290,12 @@ async function upload(event: Event) {
   const files = Array.from(input.files || []);
   busy.value = true;
   for (const file of files) {
-    if (file.size > 10 * 1024 * 1024) {
-      error.value = `${file.name} exceeds 10 MB`;
-      continue;
-    }
     try {
-      const data = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () =>
-          resolve(String(reader.result).split(",")[1] || "");
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
+      const { mime, data } = await photoPayload(file);
       await api("photos", {
         method: "POST",
         body: {
-          mime: file.type,
+          mime,
           data,
           name: file.name,
           constraints: importRequirements,
@@ -271,8 +303,11 @@ async function upload(event: Event) {
           ...(importKind === "manga" ? { kind: "manga" } : {}),
         },
       });
-    } catch {
-      error.value = `Could not upload ${file.name}; other photos were retained`;
+    } catch (e) {
+      error.value =
+        e instanceof Error && e.message === "unreadable image"
+          ? `${file.name}: this browser cannot read that image type; use a JPEG or PNG, or upload from your phone`
+          : `Could not upload ${file.name}; other photos were retained`;
     }
   }
   busy.value = false;
@@ -391,7 +426,7 @@ onBeforeUnmount(() => {
       ><label class="photo-button"
         >▧ Add book photos<input
           type="file"
-          accept="image/png,image/jpeg,image/webp"
+          accept="image/*"
           multiple
           @change="upload"
           :disabled="busy"

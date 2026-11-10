@@ -23,6 +23,8 @@ services:
       ARRDIO_ENCRYPTION_KEY_FILE: /run/secrets/arrdio_encryption_key
       ARRDIO_ROUTES_FILE: /config/routes.json
       ARRDIO_TORRENT_ROOT: /payloads/torrents
+      # qBittorrent's own path for the folder mounted at /payloads/torrents.
+      QBITTORRENT_PATH: ${QBITTORRENT_PATH:-/downloads}
       ARRDIO_SOULSEEK_ROOT: /payloads/soulseek
       # Keep false for the first start; enable after Settings shows every
       # source and library as ready.
@@ -31,9 +33,11 @@ services:
       # Whole application directory: database, WAL, staging and checkpoints.
       - ${ARRDIO_DATA_DIR:?persistent application data directory}:/data
       - ${ARRDIO_ROUTES_PATH:?operator-approved routes.json}:/config/routes.json:ro
-      # The host folder behind QBITTORRENT_CATEGORY's save path. Keep it outside
-      # the libraries: ARRDIO copies into them and the torrent keeps seeding here.
-      - ${ARRDIO_TORRENT_DIR:?host folder of the qBittorrent category save path}:/payloads/torrents:ro
+      # qBittorrent's whole download root (the host folder it mounts at
+      # QBITTORRENT_PATH), including its incomplete folder: partially selected
+      # packs stay there. The category save path must be inside it and outside
+      # the libraries; ARRDIO copies into them and the torrent keeps seeding here.
+      - ${ARRDIO_TORRENT_DIR:?host folder of the qBittorrent download root}:/payloads/torrents:ro
       - ${ARRDIO_SOULSEEK_DIR:?host folder of slskd completed downloads}:/payloads/soulseek:ro
       # One mount per routes.json destination, at the same container path.
       - ${ARRDIO_EBOOK_LIBRARY:?host ebook library root}:/libraries/books

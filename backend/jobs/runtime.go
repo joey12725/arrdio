@@ -471,6 +471,11 @@ func (s *Store) phase(ctx context.Context, l Lease, state string) bool {
 		return false
 	}
 	n, _ := result.RowsAffected()
+	if n == 1 {
+		// A new phase supersedes the previous attempt's error; showing it beside
+		// "importing" or "converting" read as a failure while work progressed.
+		s.db.ExecContext(ctx, `UPDATE job_details SET error='' WHERE id=?`, l.ID)
+	}
 	return n == 1
 }
 func (r *Runtime) leaseContext(parent context.Context, l Lease) (context.Context, context.CancelFunc) {
@@ -1036,7 +1041,8 @@ func (r *Runtime) resume(ctx context.Context, format string) {
 		return
 	}
 	if e != nil || next.State != "verified" {
-		if e != nil && !errors.Is(e, ErrUnresolvedTransfer) && !errors.Is(e, ErrInvalid) {
+		pending := errors.Is(e, ErrPayloadPending)
+		if e != nil && !pending && !errors.Is(e, ErrUnresolvedTransfer) && !errors.Is(e, ErrInvalid) {
 			r.deferSource(ctx, provider, 5*time.Minute)
 		}
 		state := "transferring"
@@ -1047,6 +1053,9 @@ func (r *Runtime) resume(ctx context.Context, format string) {
 		if e != nil || next.ID == "" {
 			state = "retryable_failure"
 			msg = "Transfer outcome unresolved; no repeated source charge"
+			if pending {
+				msg = "Download complete; waiting for its files to become readable"
+			}
 		}
 		r.Store.transition(ctx, l, state, msg, &next, nil)
 		return

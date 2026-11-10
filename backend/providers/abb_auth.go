@@ -9,6 +9,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -18,7 +19,7 @@ func (a *ABB) newClient() (*http.Client, error) {
 		return nil, errors.New("ABB origin invalid")
 	}
 	jar, _ := cookiejar.New(nil)
-	return &http.Client{Timeout: 30 * time.Second, Jar: jar, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+	return &http.Client{Timeout: 30 * time.Second, Jar: jar, Transport: &pacedTransport{next: http.DefaultTransport, interval: abbPace}, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) > 5 || req.URL.Host != base.Host || req.URL.User != nil {
 			return errors.New("ABB cross-origin redirect rejected")
 		}
@@ -31,6 +32,38 @@ func (a *ABB) newClient() (*http.Client, error) {
 		return nil
 	}}, nil
 }
+
+// abbPace spaces every request to ABB, including logins and redirects. Unpaced
+// bursts of detail pages got the client's IP blocked during live testing.
+var abbPace = 2 * time.Second
+
+type pacedTransport struct {
+	next     http.RoundTripper
+	interval time.Duration
+	mu       sync.Mutex
+	last     time.Time
+}
+
+func (p *pacedTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	p.mu.Lock()
+	slot := time.Now()
+	if next := p.last.Add(p.interval); next.After(slot) {
+		slot = next
+	}
+	p.last = slot
+	p.mu.Unlock()
+	if wait := time.Until(slot); wait > 0 {
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		select {
+		case <-r.Context().Done():
+			return nil, r.Context().Err()
+		case <-timer.C:
+		}
+	}
+	return p.next.RoundTrip(r)
+}
+
 func abbDetailURL(base *url.URL, href string) (*url.URL, error) {
 	u, e := url.Parse(href)
 	if e != nil {
@@ -64,8 +97,11 @@ func (a *ABB) authenticatedClient(ctx context.Context) (*http.Client, error) {
 	if time.Since(a.verifiedAt) < 10*time.Minute {
 		return a.client, nil
 	}
-	if e := a.login(ctx); e != nil {
-		return nil, e
+	// One member-page check keeps a live session; a full login only when it lapsed.
+	if a.verifiedAt.IsZero() || a.verifyMember(ctx) != nil {
+		if e := a.login(ctx); e != nil {
+			return nil, e
+		}
 	}
 	a.verifiedAt = time.Now()
 	return a.client, nil
@@ -117,6 +153,11 @@ func (a *ABB) login(ctx context.Context) error {
 			return errors.New("ABB authentication rejected")
 		}
 	}
+	return a.verifyMember(ctx)
+}
+
+// verifyMember confirms the current session by its member page logout link.
+func (a *ABB) verifyMember(ctx context.Context) error {
 	request, e := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(a.URL, "/")+"/member/users/", nil)
 	if e != nil {
 		return e

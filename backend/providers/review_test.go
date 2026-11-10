@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/ashkaty/arrdio-api/jobs"
 	"net/http"
 	"net/http/httptest"
@@ -75,6 +76,25 @@ func TestSoulseekRequiresContiguousCompleteInventory(t *testing.T) {
 	}
 	if !completeSet([]peerFile{{Filename: "01 chapter.mp3"}, {Filename: "02 chapter.mp3"}}) {
 		t.Fatal("complete numbered set rejected")
+	}
+	// Live slskd shares name tracks in many ways; all of these are complete.
+	numbered := func(format string, n int) []peerFile {
+		out := []peerFile{}
+		for i := 1; i <= n; i++ {
+			out = append(out, peerFile{Filename: fmt.Sprintf(format, i)})
+		}
+		return out
+	}
+	for _, format := range []string{`Dracula\Dracula %d.mp3`, `Dracula\Bram Stoker - Dracula %02d-18.mp3`, `Dracula (1965) 64k\Part %02d of Dracula (1965).mp3`, `%02d - Chapter %[1]d.m4b`} {
+		if !completeSet(numbered(format, 18)) {
+			t.Fatal("complete set rejected:", format)
+		}
+	}
+	if completeSet(append(numbered(`Disc 1 - %02d.mp3`, 3), numbered(`Disc 2 - %02d.mp3`, 3)...)) {
+		t.Fatal("per-disc numbering guessed as complete")
+	}
+	if completeSet(numbered(`Book (2007) %d.mp3`, 5)[1:]) {
+		t.Fatal("set missing track 1 accepted")
 	}
 }
 func TestABBExtractsHashAcrossMarkup(t *testing.T) {

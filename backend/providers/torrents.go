@@ -51,10 +51,17 @@ func categoryIDs(categories []Category, kind string) []int {
 	for _, c := range categories {
 		n := strings.ToLower(c.Name)
 		ebook := (strings.Contains(n, "ebook") || strings.Contains(n, "e-book")) && !strings.Contains(n, "audio") && !strings.Contains(n, "comic")
-		if (kind == "audio" && (strings.Contains(n, "audiobook") || strings.Contains(n, "audio book"))) || (kind == "manga" && (strings.Contains(n, "literature") || strings.Contains(n, "comics"))) || (kind == "ebook" && ebook) {
+		// Nyaa's Literature holds raws and other translations beside the
+		// English releases; only English-translated ones fit a library request.
+		foreign := strings.Contains(n, "raw") || strings.Contains(n, "non-english")
+		matches := (kind == "audio" && (strings.Contains(n, "audiobook") || strings.Contains(n, "audio book"))) || (kind == "manga" && !foreign && (strings.Contains(n, "literature") || strings.Contains(n, "comics"))) || (kind == "ebook" && ebook)
+		children := categoryIDs(c.Children, kind)
+		// A parent searches all of its children, so a parent with matching
+		// children is replaced by them (Literature -> English-translated).
+		if matches && (len(c.Children) == 0 || len(children) == 0) {
 			out = append(out, c.ID)
 		}
-		out = append(out, categoryIDs(c.Children, kind)...)
+		out = append(out, children...)
 	}
 	return out
 }

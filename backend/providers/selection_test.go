@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -274,5 +275,18 @@ func TestReadableEbooksKeepsBestContainer(t *testing.T) {
 	}
 	if got := readableEbooks([]string{"/d/Book.mobi", "/d/Book.azw3"}); len(got) != 0 {
 		t.Fatal("unreadable kept", got)
+	}
+}
+
+// Nyaa's Literature parent covers raws and other translations; manga searches
+// only its English-translated child.
+func TestMangaCategoriesSkipRawsAndForeignTranslations(t *testing.T) {
+	nyaa := []Category{{ID: 7000, Name: "Books"}, {ID: 100920, Name: "Literature", Children: []Category{{ID: 156719, Name: "Literature  English-translated"}, {ID: 111160, Name: "Literature - Non-English-translated"}, {ID: 117084, Name: "Literature - Raw"}}}}
+	if got := fmt.Sprint(categoryIDs(nyaa, "manga")); got != "[156719]" {
+		t.Fatal(got)
+	}
+	mam := []Category{{ID: 7030, Name: "Books/Comics"}, {ID: 7020, Name: "Books/EBook"}, {ID: 100013, Name: "AudioBooks", Children: []Category{{ID: 100039, Name: "Audiobooks - Action/Adventure"}}}}
+	if got := fmt.Sprint(categoryIDs(mam, "manga"), categoryIDs(mam, "ebook"), categoryIDs(mam, "audio")); got != "[7030] [7020] [100039]" {
+		t.Fatal(got)
 	}
 }

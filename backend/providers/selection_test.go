@@ -182,3 +182,27 @@ func TestWritersMatchRomanizationAndSplitNames(t *testing.T) {
 		t.Error("oneEdit")
 	}
 }
+
+// A book search names the volume in its title; Z-Library names it only in the
+// candidate title. Another volume of the same series is not the requested work.
+func TestRankRejectsOtherVolumeNamedInTitle(t *testing.T) {
+	in := jobs.Input{Title: "Iron Lantern, Vol. 1", Author: "Daichi Morita"}
+	got := Rank(in, "ebook", []jobs.Candidate{
+		{ID: "v2", Title: "Iron Lantern, Vol. 2", Author: "Daichi Morita", Format: "ebook", Extension: "pdf"},
+		{ID: "v1", Title: "Iron Lantern, Vol. 1", Author: "Daichi Morita", Format: "ebook", Extension: "pdf"},
+		{ID: "box", Title: "Iron Lantern Vol. 1-11 Box Set", Author: "Daichi Morita", Format: "ebook", Extension: "epub"},
+		{ID: "plain", Title: "Iron Lantern", Author: "Daichi Morita", Format: "ebook", Extension: "epub"},
+	})
+	for _, c := range got {
+		if c.ID == "v2" {
+			t.Fatal("other volume kept", got)
+		}
+	}
+	if len(got) != 3 {
+		t.Fatal(got)
+	}
+	novel := Rank(jobs.Input{Title: "The Bride of Lammermoor", Author: "Walter Scott"}, "ebook", []jobs.Candidate{{ID: "a", Title: "The Bride of Lammermoor", Author: "Walter Scott", Format: "ebook", Extension: "epub"}})
+	if len(novel) != 1 {
+		t.Fatal("unvolumed book filtered", novel)
+	}
+}

@@ -15,6 +15,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -557,6 +558,24 @@ func (r *Runtime) placementFormat(ctx context.Context, category, format string) 
 	}
 	return format
 }
+
+// trailingVolume reads a volume marker at the end of a title: ", Vol. 1",
+// " Volume 12", " V01", " (Vol. 3)".
+var trailingVolume = regexp.MustCompile(`(?i)[\s,:;(\[-]*\b(?:vol(?:ume)?\.?|v)\s*(\d+)[)\]]?\s*$`)
+
+// placementInput is the request as its destination library sees it. A manga
+// requested as a book carries its volume in the title; the manga library
+// matches and names by series and volume.
+func placementInput(in Input, place string) Input {
+	if place != "manga" || in.Volume != "" {
+		return in
+	}
+	if m := trailingVolume.FindStringSubmatchIndex(in.Title); m != nil && m[0] > 0 {
+		in.Volume = in.Title[m[2]:m[3]]
+		in.Title = strings.TrimSpace(in.Title[:m[0]])
+	}
+	return in
+}
 func (r *Runtime) reject(ctx context.Context, l Lease, provider string) {
 	tx, e := r.Store.db.BeginTx(ctx, nil)
 	if e != nil {
@@ -754,7 +773,7 @@ func (r *Runtime) step(ctx context.Context, format string) {
 	presence, e := r.Library.Presence(ctx, in, format)
 	if e == nil && place != format {
 		var routed []Presence
-		routed, e = r.Library.Presence(ctx, in, place)
+		routed, e = r.Library.Presence(ctx, placementInput(in, place), place)
 		presence = append(presence, routed...)
 	}
 	if e != nil {
@@ -991,7 +1010,7 @@ func (r *Runtime) step(ctx context.Context, format string) {
 	if !r.Store.phase(ctx, l, "importing") {
 		return
 	}
-	p, e := r.Library.Import(r.importContext(ctx, l), in, place, receipt.Paths, category)
+	p, e := r.Library.Import(r.importContext(ctx, l), placementInput(in, place), place, receipt.Paths, category)
 	if e != nil {
 		message := "Verified download retained; library import pending"
 		if errors.Is(e, ErrPlacementConflict) {
@@ -1152,7 +1171,8 @@ func (r *Runtime) resume(ctx context.Context, format string) {
 		return
 	}
 	category := r.placementCategory(ctx, l, in, format)
-	presence, e := r.Library.Import(r.importContext(ctx, l), in, r.placementFormat(ctx, category, format), next.Paths, category)
+	place := r.placementFormat(ctx, category, format)
+	presence, e := r.Library.Import(r.importContext(ctx, l), placementInput(in, place), place, next.Paths, category)
 	state := "importing"
 	message := ""
 	if e != nil {

@@ -216,7 +216,7 @@ func Rank(in jobs.Input, format string, candidates []jobs.Candidate) []jobs.Cand
 		if in.Author != "" && c.Author != "" && authorOverlap(in.Author, c.Author) < 0.4 {
 			continue
 		}
-		if in.Volume != "" && !coversVolume(c.Volume, in.Volume) {
+		if !volumeAgrees(in, c) {
 			continue
 		}
 		// Without an author nothing else anchors identity, so the requested
@@ -361,6 +361,26 @@ func volumeCoverage(title string) string {
 		return m[1] + "-" + m[2]
 	}
 	return m[1]
+}
+
+// volumeAgrees keeps a candidate for the requested volume. A request names it
+// in its volume field or, from a book search, in its title ("Iron Lantern,
+// Vol. 1"); a candidate in its volume field or title (Z-Library gives only the
+// title). A volume field must be covered; a volume in the title rejects a
+// candidate that states another one.
+func volumeAgrees(in jobs.Input, c jobs.Candidate) bool {
+	coverage := c.Volume
+	if coverage == "" {
+		coverage = volumeCoverage(c.Title)
+	}
+	if in.Volume != "" {
+		return coversVolume(coverage, in.Volume)
+	}
+	wanted := volumeCoverage(in.Title)
+	if wanted == "" || strings.Contains(wanted, "-") || coverage == "" {
+		return true
+	}
+	return coversVolume(coverage, wanted)
 }
 func fileMatchesVolume(name, wanted string) bool {
 	coverage := volumeCoverage(name)

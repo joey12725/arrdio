@@ -49,3 +49,20 @@ func TestSubtitleFallbackRequiresSameAuthor(t *testing.T) {
 		t.Fatal(candidates)
 	}
 }
+
+// The live La fontana de oro EPUB: Spanish on Z-Library, dc:language UND.
+func TestUndeterminedEPUBLanguageDoesNotVetoSourceLabel(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "book.epub")
+	file, _ := os.Create(path)
+	z := zip.NewWriter(file)
+	for name, text := range map[string]string{"META-INF/container.xml": `<container><rootfiles><rootfile full-path="OPS/content.opf"/></rootfiles></container>`, "OPS/content.opf": `<package xmlns:dc="http://purl.org/dc/elements/1.1/"><metadata><dc:title>Fontana de Oro, La</dc:title><dc:creator>Pérez Galdós Benito</dc:creator><dc:language>UND</dc:language></metadata></package>`} {
+		entry, _ := z.Create(name)
+		entry.Write([]byte(text))
+	}
+	z.Close()
+	file.Close()
+	candidate := jobs.Candidate{Title: "La fontana de oro", Author: "Benito Pérez Galdós"}
+	if e := VerifyBookIdentity(path, candidate, jobs.Constraints{Language: "Spanish"}); e != nil {
+		t.Fatal(e)
+	}
+}

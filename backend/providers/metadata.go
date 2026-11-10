@@ -86,7 +86,10 @@ func VerifyBookIdentity(path string, candidate jobs.Candidate, requirements ...j
 	if candidate.Author != "" && meta.Author != "" && overlap(candidate.Author, meta.Author) < 0.4 {
 		return errors.New("ebook author conflicts with selected result")
 	}
-	if len(requirements) > 0 && requirements[0].Language != "" {
+	// An artifact that states no language ("", und, mul, zxx) neither confirms
+	// nor contradicts the source label the selection already required.
+	stated := !map[string]bool{"": true, "und": true, "mul": true, "zxx": true}[strings.ToLower(strings.TrimSpace(meta.Language))]
+	if len(requirements) > 0 && requirements[0].Language != "" && stated {
 		if !jobs.LanguageMatches(requirements[0].Language, meta.Language) {
 			return errors.New("ebook language does not satisfy the explicit requirement")
 		}

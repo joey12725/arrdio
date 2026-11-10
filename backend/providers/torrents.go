@@ -195,6 +195,10 @@ func (p *Prowlarr) search(ctx context.Context, indexers []prowlarrIndexer, heade
 				link = v.DownloadURL
 			}
 			extra, _ := json.Marshal(map[string]string{"hash": v.InfoHash, "format": format, "volume": in.Volume})
+			// Audiobook releases also sit in literature categories (Nyaa).
+			if format != "audio" && strings.Contains(strings.ToLower(v.Title), "audiobook") {
+				continue
+			}
 			author, language, extension := releaseTag(v.Title)
 			if format == "ebook" && extension != "" && !ebookReadable[kind][extension] {
 				continue
@@ -573,7 +577,7 @@ func (t *Torrent) Poll(ctx context.Context, r jobs.Receipt) (jobs.Receipt, error
 			return r, nil
 		}
 		if len(selected) == 0 {
-			return r, errors.New("requested volume not identified in torrent files")
+			return r, jobs.UnusableCandidate{Err: errors.New("requested volume not identified in torrent files")}
 		}
 		owned := false
 		for _, tag := range strings.Split(info[0].Tags, ",") {
@@ -625,7 +629,9 @@ func (t *Torrent) Poll(ctx context.Context, r jobs.Receipt) (jobs.Receipt, error
 		paths = append(paths, path)
 	}
 	if r.Format == "ebook" {
-		paths = readableEbooks(paths)
+		if paths = readableEbooks(paths); len(paths) == 0 {
+			return r, jobs.UnusableCandidate{Err: errors.New("no readable ebook file in torrent")}
+		}
 	}
 	if len(paths) == 0 {
 		return r, errors.New("empty torrent")

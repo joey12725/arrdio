@@ -51,6 +51,15 @@ func (e FinalTransferFailure) Unwrap() error { return e.Err }
 
 type RetryTransferFailure struct{ Err error }
 
+// UnusableCandidate means a finished transfer's content can never satisfy the
+// job: the pack lacks the requested volume, no file is readable, or the audio
+// cannot be decoded. The candidate is set aside for a long time and another is
+// chosen; the provider itself is healthy.
+type UnusableCandidate struct{ Err error }
+
+func (e UnusableCandidate) Error() string { return e.Err.Error() }
+func (e UnusableCandidate) Unwrap() error { return e.Err }
+
 func (e RetryTransferFailure) Error() string { return e.Err.Error() }
 func (e RetryTransferFailure) Unwrap() error { return e.Err }
 

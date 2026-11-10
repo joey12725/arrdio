@@ -41,18 +41,23 @@ func ValidateMedia(path string) error {
 		defer cancel()
 		p, e := probe(ctx, path)
 		if e != nil {
-			return e
+			// A timeout is the disk's problem; a refusal is the file's
+			// (xHE-AAC M4Bs from Audible: "Audio object type 42").
+			if ctx.Err() != nil {
+				return e
+			}
+			return jobs.UnusableCandidate{Err: errors.New("audio cannot be decoded")}
 		}
 		d, _ := strconv.ParseFloat(p.Format.Duration, 64)
 		if d <= 0 {
-			return errors.New("audio has no duration")
+			return jobs.UnusableCandidate{Err: errors.New("audio has no duration")}
 		}
 		for _, s := range p.Streams {
 			if s.CodecType == "audio" {
 				return nil
 			}
 		}
-		return errors.New("no audio stream")
+		return jobs.UnusableCandidate{Err: errors.New("no audio stream")}
 	default:
 		return Validate(path)
 	}

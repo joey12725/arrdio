@@ -1109,6 +1109,12 @@ func (r *Runtime) resume(ctx context.Context, format string) {
 	if !retained {
 		next, e = source.Reconcile(ctx, receipt)
 	}
+	var unusable UnusableCandidate
+	if errors.As(e, &unusable) {
+		log.Printf("job %d: candidate unusable: %v", l.ID, e)
+		r.setAsideCandidate(ctx, l, provider, next, unusableExclusion, "Downloaded release cannot be used ("+unusable.Error()+"); another result will be tried")
+		return
+	}
 	var retry RetryTransferFailure
 	if errors.As(e, &retry) {
 		r.failCandidate(ctx, l, provider, next)
@@ -1182,6 +1188,11 @@ func (r *Runtime) resume(ctx context.Context, format string) {
 	presence, e := r.Library.Import(r.importContext(ctx, l), placementInput(in, place), place, next.Paths, category)
 	state := "importing"
 	message := ""
+	if errors.As(e, &unusable) {
+		log.Printf("job %d: candidate unusable: %v", l.ID, e)
+		r.setAsideCandidate(ctx, l, provider, next, unusableExclusion, "Downloaded release cannot be used ("+unusable.Error()+"); another result will be tried")
+		return
+	}
 	if e != nil {
 		log.Printf("job %d: import pending: %v", l.ID, e)
 		message = "Import pending; verified originals retained"
@@ -1236,6 +1247,12 @@ func (r *Runtime) retainedFiles(ctx context.Context, job int64) []RetainedFile {
 	return out
 }
 func (r *Runtime) failCandidate(ctx context.Context, l Lease, provider string, receipt Receipt) {
+	r.setAsideCandidate(ctx, l, provider, receipt, 30*time.Minute, "Peer transfer failed; completed files retained and another candidate will be tried")
+}
+
+// setAsideCandidate rejects the job's current candidate for a while and returns
+// the job to candidate selection.
+func (r *Runtime) setAsideCandidate(ctx context.Context, l Lease, provider string, receipt Receipt, exclude time.Duration, message string) {
 	tx, e := r.Store.db.BeginTx(ctx, nil)
 	if e != nil {
 		return
@@ -1252,7 +1269,7 @@ func (r *Runtime) failCandidate(ctx context.Context, l Lease, provider string, r
 	if _, e = tx.ExecContext(ctx, `UPDATE transfer_intents SET state='rejected' WHERE representation_id=?`, l.ID); e != nil {
 		return
 	}
-	if _, e = tx.ExecContext(ctx, `INSERT INTO failed_candidates VALUES(?,?,?,?) ON CONFLICT(job_id,provider,candidate_id) DO UPDATE SET until=excluded.until`, l.ID, provider, candidate, time.Now().Add(30*time.Minute).Unix()); e != nil {
+	if _, e = tx.ExecContext(ctx, `INSERT INTO failed_candidates VALUES(?,?,?,?) ON CONFLICT(job_id,provider,candidate_id) DO UPDATE SET until=excluded.until`, l.ID, provider, candidate, time.Now().Add(exclude).Unix()); e != nil {
 		return
 	}
 	for _, f := range receipt.Completed {
@@ -1266,8 +1283,13 @@ func (r *Runtime) failCandidate(ctx context.Context, l Lease, provider string, r
 	if tx.Commit() != nil {
 		return
 	}
-	r.Store.transition(ctx, l, "waiting_provider", "Peer transfer failed; completed files retained and another candidate will be tried", &receipt, nil)
+	r.Store.transition(ctx, l, "waiting_provider", message, &receipt, nil)
 }
+
+// unusableExclusion keeps a release whose content cannot fit the job out of
+// selection; its content will not change.
+const unusableExclusion = 30 * 24 * time.Hour
+
 func (r *Runtime) candidateDirectory(job int64, c Candidate) string {
 	return filepath.Join(r.Staging, fmt.Sprint(job), tokenHash(c.Provider + ":" + c.ID)[:16])
 }

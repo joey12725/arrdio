@@ -290,3 +290,27 @@ func TestMangaCategoriesSkipRawsAndForeignTranslations(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+// Live wrong picks on 2026-11-10: loose word overlap matched other books.
+func TestRankRequiresEveryTitleWord(t *testing.T) {
+	cases := []struct {
+		in   jobs.Input
+		c    jobs.Candidate
+		keep bool
+	}{
+		{jobs.Input{Title: "Clara Voss: ATLAS", Author: "Clara Voss"}, jobs.Candidate{Title: "Clara Voss: Thirty Years at the Studio, A Retrospective", Author: "Clara Voss"}, false},
+		{jobs.Input{Title: "Rooms in Color", Author: "Studio Editors"}, jobs.Candidate{Title: "Complete Book of Garden Plans: 500 Garden Plans in Full Color"}, false},
+		{jobs.Input{Title: "Winslow Homer: A Bigger Book", Author: "Winslow Homer"}, jobs.Candidate{Title: "Winslow Homer : a bigger exhibition", Author: "Winslow Homer"}, false},
+		{jobs.Input{Title: "Re:Start − Waking Up in Another Kingdom: Chapter 5 — Lights that Mark the Sky", Author: "Kenta Mori", Volume: "1"}, jobs.Candidate{Title: "Re:START -Waking Up in Another Kingdom-, Vol. 1 (manga): Chapter 1: A Day in the Capital by Kenta Mori [ENG / CBZ] [VIP]", Volume: "1"}, false},
+		{jobs.Input{Title: "She Who Walks with Giants 12", Author: "Quillmarsh"}, jobs.Candidate{Title: "She Who Walks with Giants 11: A LitRPG Adventure", Author: "Quillmarsh"}, false},
+		{jobs.Input{Title: "Self-Help: With Illustrations of Character & Conduct", Author: "Samuel Smiles"}, jobs.Candidate{Title: "Self-Help", Author: "Samuel Smiles"}, true},
+		{jobs.Input{Title: "Aka: The Spirit of Colour in Nordic Design", Author: "Lena Holm"}, jobs.Candidate{Title: "Aka: The Spirit of Color in Nordic Design by Lena Holm [ENG / PDF]"}, true},
+		{jobs.Input{Title: "The Shahnameh", Author: "Abolqasem Ferdowsi"}, jobs.Candidate{Title: "Shahnameh: The Epic of the Persian Kings by Abolqasem Ferdowsi [ENG / PDF]", Author: "Abolqasem Ferdowsi"}, true},
+		{jobs.Input{Title: "The History of Movable Type. 45th Ed.", Author: "Jörg Becker"}, jobs.Candidate{Title: "The History of Movable Type", Author: "Jörg Becker"}, true},
+	}
+	for _, tc := range cases {
+		if got := titleWordsMatch(tc.in, tc.c); got != tc.keep {
+			t.Errorf("%q vs %q: %v", tc.in.Title, tc.c.Title, got)
+		}
+	}
+}

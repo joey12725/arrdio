@@ -210,7 +210,7 @@ func Rank(in jobs.Input, format string, candidates []jobs.Candidate) []jobs.Cand
 		if c.Format != format || !plausible {
 			continue
 		}
-		if !shortTitleMatches(in, c) {
+		if !shortTitleMatches(in, c) || !titleWordsMatch(in, c) {
 			continue
 		}
 		if in.Author != "" && c.Author != "" && authorOverlap(in.Author, c.Author) < 0.4 {
@@ -663,4 +663,70 @@ func Enrich(ctx context.Context, in jobs.Input) (jobs.Candidate, error) {
 		c.Cover = coverURL(work.Covers[0])
 	}
 	return c, nil
+}
+
+// titleStopwords carry no identity: articles, joiners, edition and volume words.
+var titleStopwords = map[string]bool{"the": true, "a": true, "an": true, "of": true, "and": true, "in": true, "on": true, "to": true, "for": true, "with": true, "by": true, "at": true, "from": true, "or": true, "is": true, "ed": true, "eds": true, "edition": true, "vol": true, "volume": true, "v": true}
+var ordinalToken = regexp.MustCompile(`^\d+(st|nd|rd|th)$`)
+
+func titleWords(s string) []string {
+	out := []string{}
+	// Volumes are compared by volumeAgrees; here they would read as numbers.
+	s = volumePattern.ReplaceAllString(s, " ")
+	for _, w := range words.FindAllString(strings.ToLower(s), -1) {
+		if titleStopwords[w] || ordinalToken.MatchString(w) || (len(w) < 2 && (w[0] < '0' || w[0] > '9')) {
+			continue
+		}
+		out = append(out, w)
+	}
+	return out
+}
+
+// releaseTitle is a candidate's title without the "by Author [ENG / EPUB]" tail
+// MyAnonamouse adds.
+func releaseTitle(c jobs.Candidate) string {
+	if m := releaseTagPattern.FindStringSubmatch(strings.TrimSpace(c.Title)); m != nil && strings.TrimSpace(m[1]) != "" {
+		return m[1]
+	}
+	return c.Title
+}
+
+// titleWordsMatch requires every word of the requested title, numbers included,
+// in the candidate's title; a word of four or more letters may differ by one
+// edit (Color/Colour). Word overlap alone took "Clara Voss: Thirty Years
+// at the Studio" for "Clara Voss: ATLAS", and Chapter 1 of Re:Start for
+// Chapter 5. A candidate may drop the requested subtitle ("Self-Help")
+// when the author agrees and it has no subtitle of its own.
+func titleWordsMatch(in jobs.Input, c jobs.Candidate) bool {
+	title := releaseTitle(c)
+	have := map[string]bool{}
+	for _, w := range titleWords(title) {
+		have[w] = true
+	}
+	covers := func(want []string) bool {
+		for _, w := range want {
+			if have[w] {
+				continue
+			}
+			found := false
+			if len(w) >= 4 {
+				for h := range have {
+					if len(h) >= 4 && oneEdit([]rune(w), []rune(h)) {
+						found = true
+						break
+					}
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+		return true
+	}
+	if covers(titleWords(in.Title)) {
+		return true
+	}
+	main, _, subtitled := strings.Cut(in.Title, ":")
+	_, _, candidateSubtitled := strings.Cut(title, ":")
+	return subtitled && !candidateSubtitled && in.Author != "" && c.Author != "" && authorOverlap(in.Author, c.Author) >= 0.8 && covers(titleWords(main))
 }

@@ -110,6 +110,26 @@ func overlap(a, b string) float64 {
 	}
 	return float64(n) / float64(len(x))
 }
+
+// authorOverlap is overlap for credit lines. A request read from a cover often
+// names every credit ("Haruto Kimura and Sora Ito") where a library or
+// source lists one writer, so each credited name of two or more words is also
+// compared on its own. A lone surname never matches by itself.
+func authorOverlap(a, b string) float64 {
+	best := overlap(a, b)
+	for _, x := range authorSeparator.Split(a, -1) {
+		for _, y := range append(authorSeparator.Split(b, -1), b) {
+			if len(tokens(x)) < 2 || len(tokens(y)) < 2 {
+				continue
+			}
+			if v := overlap(x, y); v > best {
+				best = v
+			}
+		}
+	}
+	return best
+}
+
 func Rank(in jobs.Input, format string, candidates []jobs.Candidate) []jobs.Candidate {
 	good := []jobs.Candidate{}
 	for _, c := range candidates {
@@ -117,7 +137,7 @@ func Rank(in jobs.Input, format string, candidates []jobs.Candidate) []jobs.Cand
 			continue
 		}
 		plausible := overlap(in.Title, c.Title) >= 0.6
-		if !plausible && in.Author != "" && c.Author != "" && overlap(in.Author, c.Author) >= 0.8 {
+		if !plausible && in.Author != "" && c.Author != "" && authorOverlap(in.Author, c.Author) >= 0.8 {
 			if base, _, ok := strings.Cut(in.Title, ":"); ok {
 				plausible = strings.EqualFold(strings.TrimSpace(base), strings.TrimSpace(c.Title))
 			}
@@ -128,7 +148,7 @@ func Rank(in jobs.Input, format string, candidates []jobs.Candidate) []jobs.Cand
 		if !shortTitleMatches(in, c) {
 			continue
 		}
-		if in.Author != "" && c.Author != "" && overlap(in.Author, c.Author) < 0.4 {
+		if in.Author != "" && c.Author != "" && authorOverlap(in.Author, c.Author) < 0.4 {
 			continue
 		}
 		if in.Volume != "" && !coversVolume(c.Volume, in.Volume) {

@@ -217,7 +217,7 @@ func (l *Libraries) presence(ctx context.Context, in jobs.Input, format, categor
 				if item.Format != format {
 					continue
 				}
-				if overlap(in.Title, item.Title) >= 0.95 && (in.Author == "" || item.Author == "" || overlap(in.Author, item.Author) >= 0.7) {
+				if overlap(in.Title, item.Title) >= 0.95 && (in.Author == "" || item.Author == "" || authorOverlap(in.Author, item.Author) >= 0.7) {
 					if route.Service != "kavita" {
 						state := in.RequirementState(item.Evidence, format)
 						if state == "mismatch" {
@@ -292,7 +292,7 @@ func (l *Libraries) kavitaItem(ctx context.Context, item libraryItem, in jobs.In
 		if in.Author != "" && len(meta.Writers) > 0 {
 			match := false
 			for _, w := range meta.Writers {
-				if overlap(in.Author, w.Name) >= 0.7 {
+				if authorOverlap(in.Author, w.Name) >= 0.7 {
 					match = true
 				}
 			}

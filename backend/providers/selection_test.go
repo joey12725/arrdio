@@ -148,3 +148,20 @@ func TestRankDemotesSummaryProducts(t *testing.T) {
 		t.Fatalf("a summary outranked the book: %v", got)
 	}
 }
+
+func TestAuthorOverlapMatchesOneOfSeveralCredits(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		ok   bool
+	}{
+		{"Haruto Kimura and Sora Ito", "Haruto Kimura", true},
+		{"Sora Ito & Haruto Kimura", "Haruto Kimura, Sora Ito", true},
+		{"Emily St. John Mandel", "Mandel, Emily St. John", true},
+		{"Jane Smith", "Smith, John", false},
+		{"Haruto Kimura and Sora Ito", "Kenji Okada", false},
+	} {
+		if got := authorOverlap(c.a, c.b) >= 0.7; got != c.ok {
+			t.Errorf("authorOverlap(%q, %q) = %v", c.a, c.b, authorOverlap(c.a, c.b))
+		}
+	}
+}

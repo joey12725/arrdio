@@ -211,7 +211,12 @@ func NormalizeM4B(ctx context.Context, paths []string, destination, title, autho
 		return "", e
 	}
 	duration, _ := strconv.ParseFloat(p.Format.Duration, 64)
-	if duration < total*0.99 || duration > total*1.01 {
+	// 1%, but at least a second: encoder padding on a short input exceeds 1%.
+	slack := total * 0.01
+	if slack < 1 {
+		slack = 1
+	}
+	if duration < total-slack || duration > total+slack {
 		return "", errors.New("conversion duration mismatch")
 	}
 	if e = os.Rename(tmp, destination); e != nil {

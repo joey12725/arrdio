@@ -132,3 +132,19 @@ func TestPrimaryAuthor(t *testing.T) {
 		}
 	}
 }
+
+// Live Z-Library results for Persuasion: a summary product ranked first.
+func TestRankDemotesSummaryProducts(t *testing.T) {
+	in := jobs.Input{Title: "Persuasion", Author: "Jane Austen"}
+	ebook := func(title, author string) jobs.Candidate {
+		return jobs.Candidate{ID: title, Provider: "zlibrary", Title: title, Author: author, Language: "English", Format: "ebook", Extension: "epub"}
+	}
+	got := Rank(in, "ebook", []jobs.Candidate{
+		ebook("Persuasion: Summarized for Busy People: A Memoir: Based on the Book by Jane Austen", "Quickread Press; Jane Austen"),
+		ebook("Summary of Persuasion by Jane Austen: Key Takeaways & Analysis", "Jane Austen"),
+		ebook("Persuasion", "Jane Austen"),
+	})
+	if len(got) == 0 || got[0].Title != "Persuasion" {
+		t.Fatalf("a summary outranked the book: %v", got)
+	}
+}

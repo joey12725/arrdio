@@ -205,7 +205,7 @@ func containerRank(format, extension string) int {
 	return len(order)
 }
 
-var variantPattern = regexp.MustCompile(`(?i)\b(abridged|young readers|adapted for|summary|study guide|sparknotes|cliffsnotes|workbook|dramati[sz](?:ed|ation)|radio (?:play|drama)|full[- ]cast)\b`)
+var variantPattern = regexp.MustCompile(`(?i)\b(abridged|young readers|adapted for|summar(?:y|ies|i[sz]ed)|based on the book|analysis of|key takeaways|conversation starters|study guide|sparknotes|cliffsnotes|workbook|dramati[sz](?:ed|ation)|radio (?:play|drama)|full[- ]cast)\b`)
 
 // unwantedVariant marks abridged, adapted, dramatized and companion editions
 // the request did not ask for. "Unabridged" does not match.

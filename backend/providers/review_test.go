@@ -187,3 +187,36 @@ func TestKavitaFindsBookInsideDifferentlyNamedSeries(t *testing.T) {
 		t.Fatal("a book in another library matched", p, e)
 	}
 }
+
+// Kavita knows no language for the placed La fontana de oro (EPUB says UND).
+// Readback accepts the exact file the import placed; another untagged copy
+// still does not satisfy the explicit Spanish requirement.
+func TestReadbackAcceptsPlacedFileWithoutLanguage(t *testing.T) {
+	file := "/books/Fiction/Benito Pérez Galdós/La fontana de oro/La fontana de oro (Benito Pérez Galdós).epub"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/Series/v2":
+			w.Header().Set("Pagination", `{"totalPages":1}`)
+			w.Write([]byte(`[{"id":9,"name":"La fontana de oro"}]`))
+		case "/api/Series/metadata":
+			w.Write([]byte(`{"language":"","writers":[{"name":"Benito Pérez Galdós"}]}`))
+		case "/api/Series/volumes":
+			w.Write([]byte(`[{"name":"-100000","chapters":[{"files":[{"filePath":"` + file + `"}]}]}]`))
+		case "/api/Search/search":
+			w.Write([]byte(`{"chapters":[]}`))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+	library := &Libraries{KavitaURL: server.URL, KavitaToken: "fixture", Routes: []Route{{Category: "fiction", Format: "ebook", Service: "kavita", LibraryID: "1", Path: "/ebooks/Fiction"}}}
+	in := jobs.Input{Title: "La fontana de oro", Author: "Benito Pérez Galdós", Constraints: jobs.Constraints{Language: "Spanish"}}
+	if p, _ := library.presence(context.Background(), in, "ebook", "fiction"); p[0].State == "available" {
+		t.Fatal("untagged library copy satisfied an explicit language", p)
+	}
+	ctx := context.WithValue(context.Background(), placedFilesKey{}, []string{"/Fiction/Benito Pérez Galdós/La fontana de oro/La fontana de oro (Benito Pérez Galdós).epub"})
+	if p, e := library.presence(ctx, in, "ebook", "fiction"); e != nil || p[0].State != "available" {
+		t.Fatal("placed file not accepted", p, e)
+	}
+}

@@ -415,6 +415,9 @@ func (l *Libraries) kavitaItem(ctx context.Context, item libraryItem, in jobs.In
 				ext := strings.ToLower(filepath.Ext(f.Path))
 				evidence.Extension = strings.TrimPrefix(ext, ".")
 				state := in.RequirementState(evidence, format)
+				if state == "unknown" && placedFile(ctx, f.Path) {
+					state = "match"
+				}
 				if state == "mismatch" {
 					continue
 				}
@@ -746,7 +749,29 @@ func (l *Libraries) Import(ctx context.Context, in jobs.Input, format string, pa
 	l.mu.Lock()
 	l.invalidateLibrary(*route)
 	l.mu.Unlock()
-	return l.presence(ctx, in, format, route.Category)
+	// Kavita may lack metadata (an EPUB whose language is UND) that the artifact
+	// check already verified; its indexing the exact files placed here is then
+	// the readback. Paths are compared below the library root, since Kavita
+	// mounts the same folder elsewhere.
+	placed := []string{}
+	for dst := range destinations {
+		if rel, e := filepath.Rel(filepath.Dir(route.Path), dst); e == nil {
+			placed = append(placed, "/"+filepath.ToSlash(rel))
+		}
+	}
+	return l.presence(context.WithValue(ctx, placedFilesKey{}, placed), in, format, route.Category)
+}
+
+type placedFilesKey struct{}
+
+func placedFile(ctx context.Context, path string) bool {
+	placed, _ := ctx.Value(placedFilesKey{}).([]string)
+	for _, suffix := range placed {
+		if strings.HasSuffix(filepath.ToSlash(path), suffix) {
+			return true
+		}
+	}
+	return false
 }
 func libraryExtension(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {

@@ -7,6 +7,21 @@ const emit = defineEmits<{
   correct: [id: number, format: string];
 }>();
 const brokenCover = ref(false);
+// One line per library: where the item is available, only those links;
+// otherwise one state per service rather than one per category route.
+function shownPresence(
+  list: { service: string; state: string; url?: string }[],
+) {
+  const available = list.filter((p) => p.state === "available");
+  if (available.length) return available;
+  const seen = new Set<string>();
+  return list.filter((p) => {
+    const key = `${p.service}:${p.state}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 function safeURL(value?: string) {
   return value && /^https?:\/\//i.test(value) ? value : undefined;
 }
@@ -72,7 +87,7 @@ function safeURL(value?: string) {
         </p>
         <ul v-if="child.presence?.length" class="presence">
           <li
-            v-for="(presence, index) in child.presence"
+            v-for="(presence, index) in shownPresence(child.presence)"
             :key="`${presence.service}-${index}`"
           >
             <span>{{ presence.service }}: </span

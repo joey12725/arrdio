@@ -22,6 +22,22 @@ function shownPresence(
     return true;
   });
 }
+// A failed search reads as failed, with when it will be tried again.
+const stateLabels: Record<string, string> = {
+  missing: "search failed",
+  not_found: "not found",
+};
+function stateLabel(state: string) {
+  return stateLabels[state] ?? state.replaceAll("_", " ");
+}
+function retryIn(at?: number) {
+  if (!at) return "";
+  const minutes = Math.max(1, Math.round((at * 1000 - Date.now()) / 60000));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours} h`;
+  return `${Math.round(hours / 24)} days`;
+}
 function safeURL(value?: string) {
   return value && /^https?:\/\//i.test(value) ? value : undefined;
 }
@@ -65,7 +81,7 @@ function safeURL(value?: string) {
         <div class="status-row">
           <strong>{{ child.format }}</strong
           ><span :class="['status', child.state]">{{
-            child.state.replaceAll("_", " ")
+            stateLabel(child.state)
           }}</span>
         </div>
         <p
@@ -82,6 +98,10 @@ function safeURL(value?: string) {
           >
         </p>
         <p v-if="child.error" class="error">{{ child.error }}</p>
+        <p v-if="child.retry_at" class="retry">
+          {{ child.state === "missing" ? "Next search" : "Next try" }} in
+          {{ retryIn(child.retry_at) }}
+        </p>
         <p v-if="child.conversion_error" class="error">
           {{ child.conversion_error }}
         </p>
@@ -106,7 +126,7 @@ function safeURL(value?: string) {
         </ul>
         <div class="child-actions">
           <button
-            v-if="!['available', 'canceled'].includes(child.state)"
+            v-if="!['available', 'canceled', 'not_found'].includes(child.state)"
             @click="emit('control', book.id, 'bump', child.format)"
             :aria-label="`Bump ${child.format} for ${book.title}`"
           >
@@ -115,7 +135,11 @@ function safeURL(value?: string) {
           <button @click="emit('correct', book.id, child.format)">
             Change result</button
           ><button
-            v-if="['missing', 'retryable_failure'].includes(child.state)"
+            v-if="
+              ['missing', 'not_found', 'retryable_failure'].includes(
+                child.state,
+              )
+            "
             @click="emit('control', book.id, 'retry', child.format)"
           >
             Retry</button
@@ -237,6 +261,16 @@ h3 {
 }
 .status.available {
   color: var(--mint);
+}
+.status.missing,
+.status.not_found,
+.status.permanent_failure {
+  color: #ffb0da;
+}
+.retry {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 4px 0;
 }
 .error {
   color: #ffb0da;

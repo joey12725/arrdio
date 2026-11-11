@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -332,28 +333,116 @@ func TestPlacementInputSplitsTitleVolume(t *testing.T) {
 	}
 }
 
-func TestMissingBacksOffExponentially(t *testing.T) {
+// missAt claims and ends one ebook job as if the clock read now.
+func missAt(t *testing.T, r *Runtime, now time.Time, state string) int64 {
+	t.Helper()
+	r.Store.db.Exec(`UPDATE representations SET state='queued' WHERE state='missing' AND eligible_at<=?`, now.Unix())
+	l, e := r.Store.Claim(ctx, "ebook", randomToken(), now, time.Minute)
+	if e != nil {
+		t.Fatal("not claimable", e)
+	}
+	tx, _ := r.Store.db.Begin()
+	message := ""
+	next, e := stallBackoff(ctx, tx, l.ID, &state, &message, now)
+	if e != nil {
+		t.Fatal(e)
+	}
+	tx.Exec(`UPDATE representations SET state=?,eligible_at=?,lease_token=NULL,lease_until=NULL WHERE id=?`, state, next.Unix(), l.ID)
+	tx.Commit()
+	return next.Unix() - now.Unix()
+}
+
+func TestMissingRetriesThenLeavesQueueAfterSevenDays(t *testing.T) {
+	r := runtimeTest(t, filepath.Join(t.TempDir(), "jobs.db"))
+	b := enqueue(t, r.Store, "gone", Input{Title: "Unfindable", Formats: []string{"ebook"}})
+	now := time.Now()
+	waits := []int64{}
+	for i := 0; i < 9; i++ {
+		var state string
+		r.Store.db.QueryRow(`SELECT state FROM representations`).Scan(&state)
+		if state == "not_found" {
+			break
+		}
+		wait := missAt(t, r, now, "missing")
+		waits = append(waits, wait)
+		now = now.Add(time.Duration(wait) * time.Second)
+	}
+	hours := []int64{1, 2, 4, 8, 16, 32, 64, 41}
+	for i, h := range hours {
+		if i >= len(waits) || waits[i] != h*3600 {
+			t.Fatal("retry schedule", waits)
+		}
+	}
+	var state string
+	r.Store.db.QueryRow(`SELECT state FROM representations`).Scan(&state)
+	if state != "not_found" || len(waits) != 9 {
+		t.Fatal("not removed after the seven-day retry", state, waits)
+	}
+	if _, e := r.Store.Claim(ctx, "ebook", randomToken(), now.Add(30*24*time.Hour), time.Minute); e == nil {
+		t.Fatal("not_found job claimed again")
+	}
+	list, _ := r.Store.List(ctx, 10, 0, "queue")
+	if list[0].Representations[0].RetryAt != 0 {
+		t.Fatal("removed job advertises a retry")
+	}
+	if e := r.Store.Control(ctx, b.RequestIDs[0], "ebook", "retry"); e != nil {
+		t.Fatal(e)
+	}
+	if wait := missAt(t, r, now, "missing"); wait != 3600 {
+		t.Fatal("manual retry did not start a fresh window", wait)
+	}
+}
+
+func TestMissingShowsNextRetry(t *testing.T) {
 	r := runtimeTest(t, filepath.Join(t.TempDir(), "jobs.db"))
 	enqueue(t, r.Store, "gone", Input{Title: "Unfindable", Formats: []string{"ebook"}})
-	var waits []int64
-	for i := 0; i < 3; i++ {
-		r.Store.db.Exec(`UPDATE representations SET state='queued',eligible_at=0`)
-		l, e := r.Store.Claim(ctx, "ebook", randomToken(), time.Now(), time.Minute)
+	missAt(t, r, time.Now(), "missing")
+	list, _ := r.Store.List(ctx, 10, 0, "queue")
+	if at := list[0].Representations[0].RetryAt; at < time.Now().Add(59*time.Minute).Unix() {
+		t.Fatal("retry time not reported", at)
+	}
+}
+
+// Unfindable requests at the front of the queue must not keep the lane from
+// the work behind them, however many there are.
+func TestUnfindableRequestsCannotStarveTheLane(t *testing.T) {
+	r := runtimeTest(t, filepath.Join(t.TempDir(), "jobs.db"))
+	for i := 0; i < 50; i++ {
+		enqueue(t, r.Store, fmt.Sprint("gone", i), Input{Title: fmt.Sprint("Unfindable ", i), Formats: []string{"ebook"}})
+	}
+	enqueue(t, r.Store, "real", Input{Title: "Findable", Formats: []string{"ebook"}})
+	r.Store.db.Exec(`UPDATE requests SET bump=1 WHERE title LIKE 'Unfindable%'`)
+	now := time.Now()
+	for step := 0; step < 51; step++ {
+		r.Store.db.Exec(`UPDATE representations SET state='queued' WHERE state IN ('missing','waiting_provider') AND eligible_at<=?`, now.Unix())
+		l, e := r.Store.Claim(ctx, "ebook", randomToken(), now, time.Minute)
 		if e != nil {
-			t.Fatal(e)
+			t.Fatal("lane idle", e)
 		}
-		if e = r.Store.transition(ctx, l, "missing", "", nil, nil); e != nil {
-			t.Fatal(e)
+		in, _ := r.Store.input(ctx, l.RequestID)
+		if in.Title == "Findable" {
+			return
 		}
-		var at int64
-		r.Store.db.QueryRow(`SELECT eligible_at FROM representations WHERE id=?`, l.ID).Scan(&at)
-		waits = append(waits, at-time.Now().Unix())
+		tx, _ := r.Store.db.Begin()
+		state, message := "missing", ""
+		next, _ := stallBackoff(ctx, tx, l.ID, &state, &message, now)
+		tx.Exec(`UPDATE representations SET state=?,eligible_at=?,lease_token=NULL WHERE id=?`, state, next.Unix(), l.ID)
+		tx.Commit()
+		now = now.Add(2 * time.Minute)
 	}
-	if waits[0] < 3500 || waits[1] < 7100 || waits[2] < 14300 {
-		t.Fatal("missing retried too soon", waits)
+	t.Fatal("findable request never reached")
+}
+
+func TestBlockedProviderWaitIsBounded(t *testing.T) {
+	r := runtimeTest(t, filepath.Join(t.TempDir(), "jobs.db"))
+	enqueue(t, r.Store, "blocked", Input{Title: "Blocked", Formats: []string{"ebook"}})
+	now := time.Now()
+	waits := []int64{}
+	for i := 0; i < 9; i++ {
+		r.Store.db.Exec(`UPDATE representations SET state='queued',eligible_at=0`)
+		waits = append(waits, missAt(t, r, now, "waiting_provider"))
 	}
-	l, _ := r.Store.Claim(ctx, "ebook", randomToken(), time.Now(), time.Minute)
-	if l.ID != 0 {
-		t.Fatal("missing job reclaimed before its backoff")
+	if waits[0] != 60 || waits[1] != 120 || waits[8] != 3600 {
+		t.Fatal("provider wait schedule", waits)
 	}
 }

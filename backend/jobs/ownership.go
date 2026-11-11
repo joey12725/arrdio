@@ -39,6 +39,7 @@ func representationOwner(ctx context.Context, q rowQuery, request int64, format 
 	return resolveJobID(ctx, q, id)
 }
 func activateCanceled(ctx context.Context, tx *sql.Tx, id int64) error {
-	_, e := tx.ExecContext(ctx, `UPDATE representations SET state=CASE WHEN EXISTS(SELECT 1 FROM job_details WHERE id=? AND json_extract(receipt,'$.state')='verified') THEN 'importing' WHEN EXISTS(SELECT 1 FROM transfer_intents WHERE representation_id=? AND state='unresolved') THEN 'retryable_failure' WHEN EXISTS(SELECT 1 FROM transfer_intents WHERE representation_id=? AND state='failed') THEN 'permanent_failure' ELSE 'queued' END,eligible_at=0 WHERE id=? AND state='canceled'`, id, id, id, id)
+	// A title not found is searched again, for a fresh seven days, when requested again.
+	_, e := tx.ExecContext(ctx, `UPDATE representations SET state=CASE WHEN EXISTS(SELECT 1 FROM job_details WHERE id=? AND json_extract(receipt,'$.state')='verified') THEN 'importing' WHEN EXISTS(SELECT 1 FROM transfer_intents WHERE representation_id=? AND state='unresolved') THEN 'retryable_failure' WHEN EXISTS(SELECT 1 FROM transfer_intents WHERE representation_id=? AND state='failed') THEN 'permanent_failure' ELSE 'queued' END,eligible_at=0 WHERE id=? AND state IN ('canceled','not_found')`, id, id, id, id)
 	return e
 }

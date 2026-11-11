@@ -184,6 +184,18 @@ source labels, including EPUB OPF language; English permits regional en-* varian
 while an explicitly requested region remains specific. Do not interpret source
 availability, a plausible cover, or a structurally valid file as correct metadata.
 
+## Retries and failed searches
+
+A search that finds nothing marks the job `missing` (shown as "search failed",
+with the time of the next search). It is searched again after 1 hour, then 2,
+4, 8, 16, 32 and 64 hours, and a last time seven days after the first failure;
+if that also finds nothing the job becomes `not_found` and leaves the queue.
+Retry, or requesting the title again, starts a fresh seven days. Other stalled
+outcomes (provider or library waits, allowance waits, imports the library has
+not yet indexed) back off from 1 minute doubling to 1 hour. Untried jobs are
+claimed before retries of stalled ones, so failed requests never hold up the
+rest of a lane, whatever their priority.
+
 ## Recovery and rollback
 
 Persist the **whole application data directory**, the encryption key, gateway and

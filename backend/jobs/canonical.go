@@ -137,7 +137,7 @@ func (s *Store) Canonicalize(ctx context.Context, l Lease, in Input, c Candidate
 		}
 		var hasIntent int
 		tx.QueryRowContext(ctx, `SELECT count(*) FROM transfer_intents WHERE representation_id=? AND state!='rejected'`, actual).Scan(&hasIntent)
-		if (actualState == "available" && otherState != "available") || (hasIntent > 0 && (otherState == "queued" || otherState == "missing" || otherState == "waiting_library" || otherState == "waiting_allowance" || otherState == "canceled")) {
+		if (actualState == "available" && otherState != "available") || (hasIntent > 0 && (otherState == "queued" || otherState == "missing" || otherState == "not_found" || otherState == "waiting_library" || otherState == "waiting_allowance" || otherState == "canceled")) {
 			owner, follower = actual, other
 		}
 		var actualUnresolved, otherUnresolved int

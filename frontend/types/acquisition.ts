@@ -13,6 +13,7 @@ export type Representation = {
   conversion?: string;
   conversion_error?: string;
   selected?: Candidate;
+  retry_at?: number;
 };
 export type Book = {
   id: number;

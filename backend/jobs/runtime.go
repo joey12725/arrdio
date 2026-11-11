@@ -182,6 +182,7 @@ CREATE TABLE IF NOT EXISTS representation_categories (job_id INTEGER PRIMARY KEY
 CREATE TABLE IF NOT EXISTS failed_sources (job_id INTEGER NOT NULL REFERENCES representations(id),provider TEXT NOT NULL,until INTEGER NOT NULL,PRIMARY KEY(job_id,provider));
 CREATE TABLE IF NOT EXISTS failed_candidates (job_id INTEGER NOT NULL REFERENCES representations(id),provider TEXT NOT NULL,candidate_id TEXT NOT NULL,until INTEGER NOT NULL,PRIMARY KEY(job_id,provider,candidate_id));
 CREATE TABLE IF NOT EXISTS provider_backoff (provider TEXT PRIMARY KEY,until INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS job_stalls (job_id INTEGER PRIMARY KEY REFERENCES representations(id),state TEXT NOT NULL,count INTEGER NOT NULL,first INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS retained_files (job_id INTEGER NOT NULL REFERENCES representations(id),identity TEXT NOT NULL,path TEXT NOT NULL,size INTEGER NOT NULL,PRIMARY KEY(job_id,identity));
 CREATE TABLE IF NOT EXISTS candidate_choices (job_id INTEGER PRIMARY KEY REFERENCES representations(id),candidate BLOB NOT NULL);
 CREATE TABLE IF NOT EXISTS candidate_options (job_id INTEGER NOT NULL REFERENCES representations(id),key TEXT NOT NULL,data BLOB NOT NULL,expires INTEGER NOT NULL,PRIMARY KEY(job_id,key));
@@ -614,9 +615,12 @@ func (s *Store) transition(ctx context.Context, l Lease, state, message string, 
 		return e
 	}
 	defer tx.Rollback()
-	// A search that found nothing backs off exponentially (1h doubling to 7d),
-	// so unavailable titles do not crowd the rest of the lane.
-	result, e := tx.ExecContext(ctx, `UPDATE representations SET state=?,eligible_at=?+CASE WHEN ?='missing' THEN MIN(604800,3600*(1<<MIN(MAX(attempts-1,0),8))) ELSE 60 END,lease_token=NULL,lease_until=NULL WHERE id=? AND lease_token=? AND state!='canceled'`, state, time.Now().Unix(), state, l.ID, l.Token)
+	now := time.Now()
+	eligible, e := stallBackoff(ctx, tx, l.ID, &state, &message, now)
+	if e != nil {
+		return e
+	}
+	result, e := tx.ExecContext(ctx, `UPDATE representations SET state=?,eligible_at=?,lease_token=NULL,lease_until=NULL WHERE id=? AND lease_token=? AND state!='canceled'`, state, eligible.Unix(), l.ID, l.Token)
 	if e != nil {
 		return e
 	}

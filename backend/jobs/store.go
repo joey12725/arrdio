@@ -46,6 +46,8 @@ type Representation struct {
 	Conversion      string     `json:"conversion,omitempty"`
 	ConversionError string     `json:"conversion_error,omitempty"`
 	Selected        *Candidate `json:"selected,omitempty"`
+	// RetryAt is when a stalled job will next be tried (Unix seconds).
+	RetryAt int64 `json:"retry_at,omitempty"`
 }
 type Request struct {
 	ID              int64            `json:"id"`
@@ -340,8 +342,12 @@ func (s *Store) List(ctx context.Context, limit, offset int, sort string, filter
 				return nil, e
 			}
 			c.ID = owner
-			if e = s.db.QueryRowContext(ctx, `SELECT state FROM representations WHERE id=?`, owner).Scan(&c.State); e != nil {
+			var eligible int64
+			if e = s.db.QueryRowContext(ctx, `SELECT state,eligible_at FROM representations WHERE id=?`, owner).Scan(&c.State, &eligible); e != nil {
 				return nil, e
+			}
+			if stalledStates[c.State] && eligible > time.Now().Unix() {
+				c.RetryAt = eligible
 			}
 			var presence, candidate []byte
 			s.db.QueryRowContext(ctx, `SELECT error,presence,candidate FROM job_details WHERE id=?`, c.ID).Scan(&c.Error, &presence, &candidate)
@@ -459,7 +465,11 @@ func (s *Store) Control(ctx context.Context, id int64, format, action string) er
 		}
 	case "retry":
 		for _, owner := range owners {
-			if _, err = tx.ExecContext(ctx, `UPDATE representations SET state='queued',eligible_at=0 WHERE id=? AND state IN ('retryable_failure','missing') AND NOT EXISTS(SELECT 1 FROM transfer_intents WHERE representation_id=representations.id AND state='unresolved')`, owner); err != nil {
+			if _, err = tx.ExecContext(ctx, `UPDATE representations SET state='queued',eligible_at=0 WHERE id=? AND state IN ('retryable_failure','missing','not_found') AND NOT EXISTS(SELECT 1 FROM transfer_intents WHERE representation_id=representations.id AND state='unresolved')`, owner); err != nil {
+				return err
+			}
+			// A manual retry starts a fresh seven days of searching.
+			if _, err = tx.ExecContext(ctx, `DELETE FROM job_stalls WHERE job_id=?`, owner); err != nil {
 				return err
 			}
 		}
@@ -480,6 +490,8 @@ type Lease struct {
 }
 
 // Claim does not redispatch ambiguous external operations; reconcile their intents first.
+// Claim takes the next job in priority order, untried work before retries of
+// stalled jobs, so failures cannot hold the lane however many there are.
 func (s *Store) Claim(ctx context.Context, format, token string, now time.Time, ttl time.Duration) (Lease, error) {
 	if token == "" || ttl < time.Second {
 		return Lease{}, ErrInvalid
@@ -490,7 +502,7 @@ func (s *Store) Claim(ctx context.Context, format, token string, now time.Time, 
 WHERE id=(SELECT j.id FROM representations j JOIN requests r ON r.id=COALESCE((SELECT canonical FROM merged_requests WHERE id=j.request_id),j.request_id)
  WHERE j.format=? AND j.eligible_at<=? AND (j.state='queued' OR (j.state='matching' AND j.lease_until<=?))
  AND NOT EXISTS(SELECT 1 FROM transfer_intents t WHERE t.representation_id=j.id AND t.state='unresolved')
- ORDER BY MAX(r.bump,COALESCE((SELECT rank FROM job_bumps WHERE job_id=j.id),0)) DESC,r.rank DESC,j.id DESC LIMIT 1)
+ ORDER BY EXISTS(SELECT 1 FROM job_stalls WHERE job_id=j.id),MAX(r.bump,COALESCE((SELECT rank FROM job_bumps WHERE job_id=j.id),0)) DESC,r.rank DESC,j.id DESC LIMIT 1)
 RETURNING id,request_id,format`, token, now.Add(ttl).Unix(), format, now.Unix(), now.Unix()).Scan(&l.ID, &l.RequestID, &l.Format)
 	return l, err
 }

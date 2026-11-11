@@ -614,7 +614,9 @@ func (s *Store) transition(ctx context.Context, l Lease, state, message string, 
 		return e
 	}
 	defer tx.Rollback()
-	result, e := tx.ExecContext(ctx, `UPDATE representations SET state=?,eligible_at=?,lease_token=NULL,lease_until=NULL WHERE id=? AND lease_token=? AND state!='canceled'`, state, time.Now().Add(time.Minute).Unix(), l.ID, l.Token)
+	// A search that found nothing backs off exponentially (1h doubling to 7d),
+	// so unavailable titles do not crowd the rest of the lane.
+	result, e := tx.ExecContext(ctx, `UPDATE representations SET state=?,eligible_at=?+CASE WHEN ?='missing' THEN MIN(604800,3600*(1<<MIN(MAX(attempts-1,0),8))) ELSE 60 END,lease_token=NULL,lease_until=NULL WHERE id=? AND lease_token=? AND state!='canceled'`, state, time.Now().Unix(), state, l.ID, l.Token)
 	if e != nil {
 		return e
 	}

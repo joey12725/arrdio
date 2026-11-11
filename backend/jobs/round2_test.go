@@ -331,3 +331,29 @@ func TestPlacementInputSplitsTitleVolume(t *testing.T) {
 		t.Fatal("explicit volume overridden", got)
 	}
 }
+
+func TestMissingBacksOffExponentially(t *testing.T) {
+	r := runtimeTest(t, filepath.Join(t.TempDir(), "jobs.db"))
+	enqueue(t, r.Store, "gone", Input{Title: "Unfindable", Formats: []string{"ebook"}})
+	var waits []int64
+	for i := 0; i < 3; i++ {
+		r.Store.db.Exec(`UPDATE representations SET state='queued',eligible_at=0`)
+		l, e := r.Store.Claim(ctx, "ebook", randomToken(), time.Now(), time.Minute)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if e = r.Store.transition(ctx, l, "missing", "", nil, nil); e != nil {
+			t.Fatal(e)
+		}
+		var at int64
+		r.Store.db.QueryRow(`SELECT eligible_at FROM representations WHERE id=?`, l.ID).Scan(&at)
+		waits = append(waits, at-time.Now().Unix())
+	}
+	if waits[0] < 3500 || waits[1] < 7100 || waits[2] < 14300 {
+		t.Fatal("missing retried too soon", waits)
+	}
+	l, _ := r.Store.Claim(ctx, "ebook", randomToken(), time.Now(), time.Minute)
+	if l.ID != 0 {
+		t.Fatal("missing job reclaimed before its backoff")
+	}
+}

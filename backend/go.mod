@@ -1,4 +1,4 @@
-module github.com/ashkaty/arrdio-api
+module github.com/joey12725/arrdio/backend
 
 go 1.27.3
 

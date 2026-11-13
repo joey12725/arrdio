@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ashkaty/arrdio-api/jobs"
+	"github.com/joey12725/arrdio/backend/jobs"
 )
 
 func seeded(title, author, ext string, seeders int) jobs.Candidate {
@@ -87,9 +87,9 @@ func TestRankWithoutAuthorNeedsTitlePhrase(t *testing.T) {
 func TestVolumeRangesInWords(t *testing.T) {
 	for title, want := range map[string]string{
 		"Elowen: Past Winter's End Volumes 1 to 13 and Chapters 128 to 140 by Haruto Kimura [ENG / CBZ]": "1-13",
-		"Green Hour, Vol. 1 - Vol. 9 by Riku Nakamura [ENG / CBZ]":                                        "1-9",
-		"Iron Lantern v01-v11 (Digital)": "01-11",
-		"Elowen: Past Winter’s End, Vol. 1 by Haruto Kimura, Sora Ito [ENG / CBZ]": "1",
+		"Green Hour, Vol. 1 - Vol. 9 by Riku Nakamura [ENG / CBZ]":                                       "1-9",
+		"Iron Lantern v01-v11 (Digital)":                                                                 "01-11",
+		"Elowen: Past Winter’s End, Vol. 1 by Haruto Kimura, Sora Ito [ENG / CBZ]":                       "1",
 	} {
 		if got := volumeCoverage(title); got != want {
 			t.Errorf("%q: got %q, want %q", title, got, want)

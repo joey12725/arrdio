@@ -5,8 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"flag"
-	"github.com/ashkaty/arrdio-api/jobs"
-	"github.com/ashkaty/arrdio-api/providers"
+	"github.com/joey12725/arrdio/backend/jobs"
+	"github.com/joey12725/arrdio/backend/providers"
 	"log"
 	"os"
 )

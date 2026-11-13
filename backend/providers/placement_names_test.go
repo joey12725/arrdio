@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ashkaty/arrdio-api/jobs"
+	"github.com/joey12725/arrdio/backend/jobs"
 )
 
 // Kavita names a PDF or comic series from its file name, and readback matches
@@ -82,15 +82,15 @@ func TestImportRemovesStalePartialCopies(t *testing.T) {
 
 func TestSafePartKeepsLibraryPunctuation(t *testing.T) {
 	for in, want := range map[string]string{
-		"Elowen: Past Winter’s End":        "Elowen Past Winter's End",
-		"L. M. Montgomery":                          "L. M. Montgomery",
-		"Liam O'Flaherty":                         "Liam O'Flaherty",
+		"Elowen: Past Winter’s End":      "Elowen Past Winter's End",
+		"L. M. Montgomery":               "L. M. Montgomery",
+		"Liam O'Flaherty":                "Liam O'Flaherty",
 		"Faster, and Faster, and Faster": "Faster, and Faster, and Faster",
-		"../etc/passwd":                        "etc passwd",
-		"..":                                   "Unknown",
-		"a/b\\c:d*e?f\"g<h>i|j":                "a b c d e f g h i j",
-		".hidden.":                             "hidden",
-		"Cien años de soledad":                 "Cien años de soledad",
+		"../etc/passwd":                  "etc passwd",
+		"..":                             "Unknown",
+		"a/b\\c:d*e?f\"g<h>i|j":          "a b c d e f g h i j",
+		".hidden.":                       "hidden",
+		"Cien años de soledad":           "Cien años de soledad",
 	} {
 		if got := safePart(in); got != want {
 			t.Errorf("safePart(%q) = %q, want %q", in, got, want)

@@ -3,7 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
-	"github.com/ashkaty/arrdio-api/jobs"
+	"github.com/joey12725/arrdio/backend/jobs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"

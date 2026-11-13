@@ -1,14 +1,26 @@
-./compose.yml
-./compose.yaml
-compose.yaml
+# Local compose overrides and secrets
 compose.yml
-./compose-example.yaml
-# Local acquisition state and credentials
-*.db
-*.db-wal
-*.db-shm
+compose.yaml
+compose.override.yaml
 .env
 .env.*
 !.env.example
+*.key
+routes.json
+
+# Application state
+*.db
+*.db-wal
+*.db-shm
+output/
+audiobooks/
+ebooks/
+
+# Python helper caches
 **/__pycache__/
 *.pyc
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

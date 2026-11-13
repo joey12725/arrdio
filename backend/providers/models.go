@@ -7,7 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"github.com/ashkaty/arrdio-api/jobs"
+	"github.com/joey12725/arrdio/backend/jobs"
 	_ "golang.org/x/image/webp"
 	"image"
 	_ "image/jpeg"

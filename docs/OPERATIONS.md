@@ -2,28 +2,28 @@
 
 ## Files
 
-- `compose-example.yaml`: production services for this release. Images are pinned
-  to an explicitly published tag; secrets come from two env files outside the
+- `compose-example.yaml`: production services. Images build from the checkout
+  (or a pinned prebuilt tag); secrets come from two env files outside the
   checkout (one for the API, one for the web server).
 - `compose.local.yaml`: isolated build with workers paused, its own volume and a
   loopback-only web port. It mounts no libraries.
 
-The release is **not backward compatible** with the previous images: the API
-moves from port 2130 to 2131, the web server no longer reads
+The durable-acquisition release is **not backward compatible** with the original
+Arrdio images: the API moves from port 2130 to 2131, the web server no longer reads
 `NUXT_PUBLIC_API_BASE`, and the old `/app/data` database is never opened in place.
 
-## Publishing images
+## Building images
 
-Merging does not publish anything. Run the **Build, test and publish** workflow
-manually with a version tag (for example `v2.0.0`). It re-runs every check, then
-pushes `arrdio-api:<tag>` and `arrdio-frontend:<tag>`. The `latest` and `dev`
-tags are refused, because the previous production compose pulls them.
+CI builds both images on every push but publishes nothing. Build locally with
+`docker compose -f compose-example.yaml build`, or push to your own registry and
+pin `ARRDIO_IMAGE_TAG`. Both Dockerfiles cross-compile, so an arm64 machine can
+build amd64 images without emulation (`docker buildx build --platform linux/amd64`).
 
-## Cutover
+## Cutover from the original Arrdio
 
-1. Publish a tag as above, then stop and remove the previous `api`/`frontend`
-   containers (the new ones reuse their names). Keep their volume and note their
-   image digests: together they are the rollback.
+1. Build or publish the new images, then stop and remove the previous
+   `api`/`frontend` containers (the new ones reuse their names). Keep their volume
+   and note their image digests: together they are the rollback.
 2. Create the data directory, owned by the API user (`ARRDIO_UID`/`ARRDIO_GID`).
    Generate the encryption key (`head -c 32 /dev/urandom`), the gateway token and
    the session secret (`openssl rand -base64 48`) into the secret manager.
@@ -89,7 +89,7 @@ Secrets never belong in Docker build arguments or image layers. Do not print
 checkout, owner-readable only. Production shared-media writes must run under the
 operator-approved media UID/GID, with matching permissions on the dedicated app
 data directory. The image's default non-root UID 10001 suits isolated storage;
-shared media folders usually need their own owner (99:100 on Unraid).
+shared media folders usually need their own owner (for example 99:100 on Unraid).
 
 ## Provider configuration
 

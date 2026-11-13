@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/ashkaty/arrdio-api/jobs"
+	"github.com/joey12725/arrdio/backend/jobs"
 	"io"
 	"net/http"
 	"net/http/httptest"

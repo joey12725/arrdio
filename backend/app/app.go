@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"github.com/ashkaty/arrdio-api/jobs"
-	"github.com/ashkaty/arrdio-api/providers"
+	"github.com/joey12725/arrdio/backend/jobs"
+	"github.com/joey12725/arrdio/backend/providers"
 	"log"
 	"net/http"
 	"os"
@@ -81,7 +81,8 @@ func Run() {
 	abb := &providers.ABB{URL: os.Getenv("ABB_URL"), Cookie: os.Getenv("ABB_COOKIE"), Torrent: torrent}
 	abb.Username = os.Getenv("ABB_USERNAME")
 	abb.Password = os.Getenv("ABB_PASSWORD")
-	// Torrents first: a book on MyAnonamouse saves a Z-Library download.
+	// Indexers first: a release found through Prowlarr spares a direct-download
+	// account's daily allowance.
 	r.Sources = []jobs.Source{p, z, abb}
 	r.Sources = append(r.Sources, &providers.Soulseek{URL: os.Getenv("SLSKD_URL"), Key: os.Getenv("SLSKD_API_KEY"), DownloadRoot: os.Getenv("ARRDIO_SOULSEEK_ROOT")})
 	for name, key := range map[string]string{"prowlarr": "PROWLARR_URL", "abb": "ABB_URL", "soulseek": "SLSKD_API_KEY"} {

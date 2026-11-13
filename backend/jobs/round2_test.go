@@ -313,12 +313,12 @@ func TestEbookClassifiedAsManga(t *testing.T) {
 // series and volume.
 func TestPlacementInputSplitsTitleVolume(t *testing.T) {
 	for title, want := range map[string][2]string{
-		"Iron Lantern, Vol. 1":     {"Iron Lantern", "1"},
+		"Iron Lantern, Vol. 1":    {"Iron Lantern", "1"},
 		"Supper in Stormhold V01": {"Supper in Stormhold", "01"},
-		"Sea Glass Volume 100":     {"Sea Glass", "100"},
+		"Sea Glass Volume 100":    {"Sea Glass", "100"},
 		"Elowen (Vol. 3)":         {"Elowen", "3"},
-		"Engine 451":           {"Engine 451", ""},
-		"Vol. 2":                   {"Vol. 2", ""},
+		"Engine 451":              {"Engine 451", ""},
+		"Vol. 2":                  {"Vol. 2", ""},
 	} {
 		got := placementInput(Input{Title: title}, "manga")
 		if got.Title != want[0] || got.Volume != want[1] {

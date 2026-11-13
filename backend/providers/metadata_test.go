@@ -2,7 +2,7 @@ package providers
 
 import (
 	"archive/zip"
-	"github.com/ashkaty/arrdio-api/jobs"
+	"github.com/joey12725/arrdio/backend/jobs"
 	"os"
 	"path/filepath"
 	"testing"

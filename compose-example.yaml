@@ -6,14 +6,17 @@
 # `docker compose -f compose-example.yaml config --quiet`; never print the
 # resolved config, because it contains those secrets.
 #
-# Images must be pinned to an explicitly published tag. Nothing here pulls :latest.
+# Images build from this checkout by default (`docker compose -f compose-example.yaml
+# up --build`). To run prebuilt images instead, set ARRDIO_API_IMAGE /
+# ARRDIO_WEB_IMAGE and pin ARRDIO_IMAGE_TAG to an explicit version.
 services:
   api:
-    image: ${ARRDIO_API_IMAGE:-ashwinrameshdocker/arrdio-api}:${ARRDIO_IMAGE_TAG:?set the published image tag}
+    build: ./backend
+    image: ${ARRDIO_API_IMAGE:-arrdio-api}:${ARRDIO_IMAGE_TAG:-local}
     container_name: arrdio-api
     restart: unless-stopped
     # Must own the data directory and be able to write the library routes.
-    # On Unraid shared media this is usually 99:100 (nobody:users).
+    # On NAS shared media this is often 99:100 (nobody:users on Unraid).
     user: ${ARRDIO_UID:-10001}:${ARRDIO_GID:-10001}
     env_file:
       - ${ARRDIO_API_ENV_FILE:?api secrets env file}
@@ -50,7 +53,8 @@ services:
       - "2131"
 
   frontend:
-    image: ${ARRDIO_WEB_IMAGE:-ashwinrameshdocker/arrdio-frontend}:${ARRDIO_IMAGE_TAG:?set the published image tag}
+    build: ./frontend
+    image: ${ARRDIO_WEB_IMAGE:-arrdio-frontend}:${ARRDIO_IMAGE_TAG:-local}
     container_name: arrdio-frontend
     restart: unless-stopped
     env_file:

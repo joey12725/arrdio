@@ -1,5 +1,5 @@
 package main
 
-import "github.com/ashkaty/arrdio-api/app"
+import "github.com/joey12725/arrdio/backend/app"
 
 func main() { app.Run() }

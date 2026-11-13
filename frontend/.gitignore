@@ -24,5 +24,3 @@ logs
 !.env.example
 
 ebooks
-
-./compose-example.yaml

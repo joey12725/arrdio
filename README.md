@@ -172,4 +172,4 @@ have the right to download.
 
 ## License
 
-No license has been chosen yet. See [NOTICE](NOTICE).
+[MIT](LICENSE). Original Arrdio by Ashwin Ramesh ([@ashkaty](https://github.com/ashkaty)); durable-acquisition fork by Joey Hersh.
